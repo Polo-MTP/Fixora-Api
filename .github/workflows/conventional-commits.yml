@@ -1,0 +1,68 @@
+# Revisa que cada pull request siga las convenciones del equipo:
+# nombre de rama, título (con squash se vuelve el commit final) y mensajes de commits.
+# Usa la misma regla que el hook local .githooks/commit-msg.
+name: Conventional Commits
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  validar:
+    name: Formato de PR y commits
+    runs-on: ubuntu-latest
+    env:
+      PLANE_PREFIX: API
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # La regla se toma de la rama destino, para que un PR no pueda relajarla a su favor.
+      # Si la rama destino aún no la tiene (el PR que la agrega), se usa la del PR.
+      - name: Preparar validador
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git show "$BASE_SHA:.githooks/commit-msg" > "$RUNNER_TEMP/commit-msg" 2>/dev/null \
+            || cp .githooks/commit-msg "$RUNNER_TEMP/commit-msg"
+
+      - name: Nombre de la rama
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          pattern="^((feature|bugfix|hotfix)/$PLANE_PREFIX-[0-9]+-[a-z0-9-]+|release/v[0-9]+\.[0-9]+\.[0-9]+|main|develop)$"
+          if printf '%s\n' "$BRANCH" | grep -Eq "$pattern"; then
+            echo "Rama válida: $BRANCH"
+          else
+            echo "::error::La rama '$BRANCH' debe ser feature|bugfix|hotfix/$PLANE_PREFIX-XX-descripcion (minúsculas, sin acentos, con guiones) o release/vX.Y.Z."
+            exit 1
+          fi
+
+      - name: Título del PR
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/titulo.txt"
+          if ! sh "$RUNNER_TEMP/commit-msg" "$RUNNER_TEMP/titulo.txt"; then
+            echo "::error::El título del PR debe seguir el formato <tipo>(<ámbito>): <descripción> ($PLANE_PREFIX-XX)."
+            exit 1
+          fi
+
+      - name: Mensajes de los commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          fallos=0
+          for sha in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/commit.txt"
+            if ! sh "$RUNNER_TEMP/commit-msg" "$RUNNER_TEMP/commit.txt"; then
+              echo "::error::El commit $(git log -1 --format=%h "$sha") no sigue el formato."
+              fallos=1
+            fi
+          done
+          exit $fallos

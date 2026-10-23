@@ -1,0 +1,37 @@
+#!/bin/sh
+# Valida que el mensaje siga Conventional Commits con el ID de la tarea de Plane:
+#   <tipo>(<ámbito>): <descripción> (API-XX)
+# Git lo ejecuta en cada commit (hook commit-msg) y el workflow de GitHub lo reutiliza
+# para revisar el título y los commits de cada pull request.
+# Uso: commit-msg <archivo-con-el-mensaje>
+
+# Prefijo de las tareas de este repo en Plane.
+prefix='API'
+
+# Primera línea con texto, ignorando comentarios de Git y saltos de línea de Windows.
+subject=$(grep -v '^#' "$1" | tr -d '\r' | sed '/^[[:space:]]*$/d' | head -n 1)
+
+# Mensajes que Git genera solo (merge, revert) y los de autosquash.
+case "$subject" in
+  "Merge "* | "Revert \""* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
+esac
+
+types='feat|fix|docs|style|refactor|perf|test|build|ci|chore'
+task="^($types)(\([a-z0-9-]+\))?!?: .+ \($prefix-[0-9]+\)$"
+# Commit de versión en las ramas release/*, por ejemplo: chore: v1.2.0
+release='^chore(\(release\))?: v[0-9]+\.[0-9]+\.[0-9]+$'
+
+if printf '%s\n' "$subject" | grep -Eq "$task|$release"; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+El mensaje no sigue el formato del equipo (Conventional Commits + ID de Plane):
+
+    $subject
+
+  Formato:  <tipo>(<ámbito>): <descripción> ($prefix-XX)
+  Tipos:    feat, fix, docs, style, refactor, perf, test, build, ci, chore
+  Ejemplo:  feat(auth): agrega pantalla de login ($prefix-4)
+EOF
+exit 1
