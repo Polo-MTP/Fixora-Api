@@ -30,15 +30,21 @@ jobs:
           git show "$BASE_SHA:.githooks/commit-msg" > "$RUNNER_TEMP/commit-msg" 2>/dev/null \
             || cp .githooks/commit-msg "$RUNNER_TEMP/commit-msg"
 
-      - name: Nombre de la rama
+      - name: Nombre y destino de la rama
         env:
           BRANCH: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
         run: |
           pattern="^((feature|bugfix|hotfix)/$PLANE_PREFIX-[0-9]+-[a-z0-9-]+|release/v[0-9]+\.[0-9]+\.[0-9]+|main|develop)$"
           if printf '%s\n' "$BRANCH" | grep -Eq "$pattern"; then
             echo "Rama válida: $BRANCH"
           else
             echo "::error::La rama '$BRANCH' debe ser feature|bugfix|hotfix/$PLANE_PREFIX-XX-descripcion (minúsculas, sin acentos, con guiones) o release/vX.Y.Z."
+            exit 1
+          fi
+          # A main solo entran lanzamientos y correcciones urgentes; todo lo demás va a develop.
+          if [ "$BASE" = "main" ] && ! printf '%s\n' "$BRANCH" | grep -Eq '^(release|hotfix)/'; then
+            echo "::error::A main solo entran ramas release/* o hotfix/*. Cambia la base del PR a develop."
             exit 1
           fi
 
