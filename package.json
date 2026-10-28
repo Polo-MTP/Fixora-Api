@@ -6,19 +6,40 @@
   "main": "src/app.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsx watch src/app.ts"
+    "dev": "tsx watch src/app.ts",
+    "build": "tsc",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx src/database/seed.ts",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.27.0",
   "dependencies": {
-    "express": "^5.2.1"
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "drizzle-orm": "^0.45.4",
+    "express": "^5.2.1",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.4",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.10",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.72.1"
   }
 }
