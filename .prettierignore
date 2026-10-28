@@ -1,0 +1,5 @@
+node_modules
+dist
+database/migrations
+pnpm-lock.yaml
+.env
