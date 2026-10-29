@@ -6,6 +6,7 @@ async function seed() {
 
   // 1. Roles
   console.log('Insertando catálogo de roles...');
+
   const initialRoles = [
     { name: 'cliente', active: true },
     { name: 'proveedor', active: true },
@@ -16,7 +17,7 @@ async function seed() {
   ];
 
   for (const role of initialRoles) {
-    await db.insert(roles).values(role).onConflictDoNothing();
+    await db.insert(roles).values(role).onConflictDoNothing({ target: roles.name });
   }
 
   // 2. Categorías

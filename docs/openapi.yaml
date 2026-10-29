@@ -1,0 +1,503 @@
+openapi: 3.1.0
+
+info:
+  title: Fixora API
+  version: 1.0.0
+  description: |
+    Contrato de la API de Fixora.
+    Incluye autenticación, administración de sesiones y
+    creación de usuarios de prueba para desarrollo.
+
+servers:
+  - url: http://localhost:3000
+    description: Servidor local de desarrollo
+
+tags:
+  - name: Autenticación
+    description: Inicio de sesión y administración de sesiones.
+  - name: Desarrollo
+    description: Endpoints disponibles únicamente fuera de producción.
+
+paths:
+  /api/auth/login:
+    post:
+      tags:
+        - Autenticación
+      summary: Iniciar sesión
+      description: |
+        Autentica al usuario mediante correo y contraseña.
+        La cuenta debe estar activa y su rol habilitado.
+        Devuelve un token de acceso y un token de renovación.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: cliente@fixora.com
+              password: MiContrasena123
+      responses:
+        '200':
+          description: Inicio de sesión exitoso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/InvalidInput'
+        '401':
+          description: Correo o contraseña incorrectos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: INVALID_CREDENTIALS
+                message: Correo o contraseña incorrectos.
+        '403':
+          description: Cuenta no habilitada o rol desactivado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                accountNotActive:
+                  summary: Cuenta inactiva
+                  value:
+                    error: ACCOUNT_NOT_ACTIVE
+                    message: La cuenta no está habilitada para iniciar sesión.
+                roleInactive:
+                  summary: Rol desactivado
+                  value:
+                    error: ROLE_INACTIVE
+                    message: El rol de esta cuenta está desactivado.
+        '423':
+          description: Cuenta bloqueada temporalmente por intentos fallidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: ACCOUNT_TEMPORARILY_LOCKED
+                message: La cuenta está bloqueada temporalmente. Intenta más tarde.
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/refresh:
+    post:
+      tags:
+        - Autenticación
+      summary: Renovar sesión
+      description: |
+        Genera un nuevo par de tokens y rota el token de renovación.
+        El token de renovación anterior deja de ser válido después
+        de una renovación exitosa.
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: Sesión renovada correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '400':
+          $ref: '#/components/responses/RefreshTokenRequired'
+        '401':
+          description: Token inválido, sesión expirada o token ya utilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidToken:
+                  value:
+                    error: INVALID_REFRESH_TOKEN
+                    message: El token de renovación no es válido o ha expirado.
+                invalidSession:
+                  value:
+                    error: INVALID_SESSION
+                    message: La sesión no es válida o ha expirado.
+        '403':
+          description: Cuenta no habilitada o rol desactivado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Autenticación
+      summary: Cerrar sesión
+      description: |
+        Revoca la sesión asociada al token de renovación proporcionado.
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: Sesión cerrada correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+              example:
+                message: Sesión cerrada correctamente.
+        '400':
+          $ref: '#/components/responses/RefreshTokenRequired'
+        '401':
+          description: Token de renovación inválido o expirado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidToken:
+                  value:
+                    error: INVALID_REFRESH_TOKEN
+                    message: El token de renovación no es válido o ha expirado.
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/dev/users:
+    post:
+      tags:
+        - Desarrollo
+      summary: Crear usuario de prueba
+      description: |
+        Crea un usuario para probar la autenticación.
+        Este endpoint solo está disponible cuando NODE_ENV
+        no tiene el valor production.
+      operationId: createTestUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTestUserRequest'
+            example:
+              email: cliente.prueba@fixora.test
+              password: Fixora123!
+              role: cliente
+              status: activo
+      responses:
+        '201':
+          description: Usuario de prueba creado correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTestUserResponse'
+        '400':
+          description: Datos, rol o estado inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidInput:
+                  value:
+                    error: INVALID_INPUT
+                    message: Debes proporcionar email y password como cadenas de texto no vacías.
+                invalidRole:
+                  value:
+                    error: INVALID_ROLE
+                    message: El rol especificado no es válido.
+                    availableRoles:
+                      - administrador
+                      - soporte
+                      - cliente
+                      - proveedor
+                      - gerente
+                      - empleado
+                invalidStatus:
+                  value:
+                    error: INVALID_STATUS
+                    message: El estado especificado no es válido.
+                    availableStatuses:
+                      - activo
+                      - por_verificar
+                      - por_aprobar
+        '403':
+          description: Creación de usuarios de prueba deshabilitada o rol no disponible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                disabled:
+                  value:
+                    error: TEST_USERS_DISABLED
+                    message: La creación de usuarios de prueba está deshabilitada.
+                roleNotFound:
+                  value:
+                    error: ROLE_NOT_FOUND
+                    message: El rol solicitado no existe o está desactivado.
+        '409':
+          description: Ya existe un usuario con ese correo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: EMAIL_ALREADY_EXISTS
+                message: El correo ya está registrado.
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Correo registrado en Fixora.
+        password:
+          type: string
+          format: password
+          minLength: 1
+          description: Contraseña de la cuenta.
+
+    LoginResponse:
+      type: object
+      required:
+        - message
+        - user
+        - tokens
+      properties:
+        message:
+          type: string
+          example: Inicio de sesión exitoso.
+        user:
+          $ref: '#/components/schemas/PublicUser'
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+
+    PublicUser:
+      type: object
+      required:
+        - id
+        - email
+        - role
+        - status
+      properties:
+        id:
+          type: string
+          description: Identificador del usuario como cadena.
+          example: '42'
+        email:
+          type: string
+          format: email
+          example: cliente@fixora.com
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          type: string
+          description: Estado actual de la cuenta.
+          example: activo
+
+    UserRole:
+      type: string
+      enum:
+        - administrador
+        - soporte
+        - cliente
+        - proveedor
+        - gerente
+        - empleado
+
+    TokenPair:
+      type: object
+      required:
+        - accessToken
+        - refreshToken
+        - tokenType
+        - expiresIn
+      properties:
+        accessToken:
+          type: string
+          description: JWT utilizado para autenticar solicitudes protegidas.
+        refreshToken:
+          type: string
+          description: JWT utilizado para renovar la sesión.
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: string
+          description: Duración configurada del token de acceso.
+          example: 15m
+
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+          description: Token de renovación vigente.
+
+    RefreshResponse:
+      type: object
+      required:
+        - message
+        - tokens
+      properties:
+        message:
+          type: string
+          example: Sesión renovada correctamente.
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+
+    LogoutResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: Sesión cerrada correctamente.
+
+    CreateTestUserRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+        role:
+          $ref: '#/components/schemas/UserRole'
+          default: cliente
+        status:
+          type: string
+          enum:
+            - activo
+            - por_verificar
+            - por_aprobar
+          default: activo
+
+    CreateTestUserResponse:
+      type: object
+      required:
+        - message
+        - user
+      properties:
+        message:
+          type: string
+          example: Usuario de prueba creado correctamente.
+        user:
+          type: object
+          required:
+            - id
+            - email
+            - role
+            - status
+          properties:
+            id:
+              type: string
+              example: '42'
+            email:
+              type: string
+              format: email
+              example: cliente.prueba@fixora.test
+            role:
+              $ref: '#/components/schemas/UserRole'
+            status:
+              type: string
+              enum:
+                - activo
+                - por_verificar
+                - por_aprobar
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Código de error estable para el cliente.
+          example: INVALID_INPUT
+        message:
+          type: string
+          description: Descripción legible del error.
+          example: La solicitud contiene datos inválidos.
+        availableRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserRole'
+        availableStatuses:
+          type: array
+          items:
+            type: string
+            enum:
+              - activo
+              - por_verificar
+              - por_aprobar
+
+  responses:
+    InvalidInput:
+      description: Faltan datos obligatorios o tienen un formato inválido.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: INVALID_INPUT
+            message: Debes proporcionar email y password como cadenas de texto no vacías.
+
+    RefreshTokenRequired:
+      description: No se proporcionó un token de renovación válido como texto.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: REFRESH_TOKEN_REQUIRED
+            message: Debes proporcionar el token de renovación.
+
+    InternalServerError:
+      description: Error inesperado del servidor.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: INTERNAL_SERVER_ERROR
+            message: Error interno del servidor.

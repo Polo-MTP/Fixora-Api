@@ -46,3 +46,8 @@ temp/
 *.pid
 *.seed
 *.pid.lock
+.agents/
+.claude/
+.cursor/
+.devin/
+src/generated/
