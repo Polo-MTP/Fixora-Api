@@ -13,6 +13,7 @@
     "format:check": "prettier --check .",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx src/database/seed.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "prepare": "git config core.hooksPath .githooks || exit 0"
