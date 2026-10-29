@@ -17,10 +17,7 @@ async function seed() {
   ];
 
   for (const role of initialRoles) {
-    await db
-      .insert(roles)
-      .values(role)
-      .onConflictDoNothing({ target: roles.name });
+    await db.insert(roles).values(role).onConflictDoNothing({ target: roles.name });
   }
 
   // 2. Categorías

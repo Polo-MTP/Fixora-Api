@@ -45,7 +45,8 @@ temp/
 # Runtime data
 *.pid
 *.seed
-*.pid.lock.agents/
+*.pid.lock
+.agents/
 .claude/
 .cursor/
 .devin/

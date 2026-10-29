@@ -1,4 +1,3 @@
-
 import './utils/bigint-serializer.ts';
 import 'dotenv/config';
 
@@ -7,10 +6,7 @@ import cors from 'cors';
 
 import { ENV } from './config/env.ts';
 import { requestLogger } from './middlewares/logger.middleware.ts';
-import {
-    errorHandler,
-    notFoundHandler,
-} from './middlewares/error.middleware.ts';
+import { errorHandler, notFoundHandler } from './middlewares/error.middleware.ts';
 
 import { apiRouter } from './routes/index.ts';
 import authRoutes from './routes/auth.routes.ts';
@@ -29,28 +25,24 @@ app.use(requestLogger);
 
 // Ruta base
 app.get('/', (_req: Request, res: Response) => {
-    res.status(200).json({
-        name: 'Fixora API',
-        version: '1.0.0',
-        documentation: '/api/docs',
-        status: 'online',
-    });
+  res.status(200).json({
+    name: 'Fixora API',
+    version: '1.0.0',
+    documentation: '/api/docs',
+    status: 'online',
+  });
 });
 
 // Estado de la API
 app.get('/health', (_req, res) => {
-    res.status(200).json({
-        status: 'ok',
-        service: 'Fixora-Api',
-    });
+  res.status(200).json({
+    status: 'ok',
+    service: 'Fixora-Api',
+  });
 });
 
 // Documentación Swagger
-app.use(
-    '/api/docs',
-    swaggerUi.serve,
-    swaggerUi.setup(openApiDocument),
-);
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
 
 // Rutas generales
 app.use('/api', apiRouter);
@@ -60,7 +52,7 @@ app.use('/api/auth', authRoutes);
 
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {
-    app.use('/api/dev', testAuthRoutes);
+  app.use('/api/dev', testAuthRoutes);
 }
 
 // Manejadores globales
@@ -70,23 +62,19 @@ app.use(errorHandler);
 const port = ENV.PORT;
 
 async function startServer() {
-    try {
-        app.listen(port, () => {
-            console.log(
-                `Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`,
-            );
-            console.log(`Documentación: http://localhost:${port}/api/docs`);
+  try {
+    app.listen(port, () => {
+      console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);
+      console.log(`Documentación: http://localhost:${port}/api/docs`);
 
-            if (ENV.NODE_ENV !== 'production') {
-                console.log(
-                    `Usuarios de prueba: http://localhost:${port}/api/dev/users`,
-                );
-            }
-        });
-    } catch (error) {
-        console.error('Error al inicializar Fixora API:', error);
-        process.exitCode = 1;
-    }
+      if (ENV.NODE_ENV !== 'production') {
+        console.log(`Usuarios de prueba: http://localhost:${port}/api/dev/users`);
+      }
+    });
+  } catch (error) {
+    console.error('Error al inicializar Fixora API:', error);
+    process.exitCode = 1;
+  }
 }
 
 startServer();

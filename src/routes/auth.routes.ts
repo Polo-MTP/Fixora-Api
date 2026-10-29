@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import {
-    loginController,
-    refreshController,
-    logoutController,
+  loginController,
+  refreshController,
+  logoutController,
 } from '../controllers/auth.controller.ts';
 
 const router = Router();

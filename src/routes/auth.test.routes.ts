@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import { createTestUserController } from '../controllers/auth.test.controller.ts';
 
