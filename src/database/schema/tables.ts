@@ -9,6 +9,7 @@ import {
   date,
   time,
   timestamp,
+  uuid,
   numeric,
   integer,
   type AnyPgColumn,
@@ -47,7 +48,7 @@ import {
 
 export const roles = pgTable('roles', {
   UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  name: varchar('name', { length: 100 }).notNull(),
+  name: varchar('name', { length: 100 }).notNull().unique(),
   active: boolean('active').notNull().default(true),
 });
 
@@ -57,6 +58,21 @@ export const users = pgTable('users', {
   password_hash: varchar('password_hash', { length: 255 }).notNull(),
   role_id: bigint('role_id', { mode: 'bigint' }).references(() => roles.UniqueID),
   state: userStateEnum('state').notNull().default('por_verificar'),
+  failed_attempts: integer('failed_attempts').notNull().default(0),
+  locked_until: timestamp('locked_until'),
+});
+
+export const sessions = pgTable('sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+
+  user_id: bigint('user_id', { mode: 'bigint' })
+    .notNull()
+    .references(() => users.UniqueID),
+
+  refresh_hash: varchar('refresh_hash', { length: 64 }).notNull(),
+  expires_at: timestamp('expires_at').notNull(),
+  revoked: boolean('revoked').notNull().default(false),
+  created_at: timestamp('created_at').notNull().defaultNow(),
 });
 
 export const personal_data = pgTable('personal_data', {
