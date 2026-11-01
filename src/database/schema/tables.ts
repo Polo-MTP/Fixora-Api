@@ -75,6 +75,7 @@ export const sessions = pgTable('sessions', {
   created_at: timestamp('created_at').notNull().defaultNow(),
 });
 
+
 export const personal_data = pgTable('personal_data', {
   UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
   user_id: bigint('user_id', { mode: 'bigint' })
@@ -139,6 +140,32 @@ export const device_tokens = pgTable('device_tokens', {
   active: boolean('active').notNull().default(true),
   created_at: timestamp('created_at').notNull().defaultNow(),
 });
+
+
+// ============================================================================
+// MÓDULO: Verificación de correo electrónico
+// ============================================================================
+
+export const email_verification_codes = pgTable(
+  'email_verification_codes',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+
+    user_id: bigint('user_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+
+    code_hash: varchar('code_hash', { length: 64 }).notNull(),
+
+    expires_at: timestamp('expires_at').notNull(),
+
+    attempts: integer('attempts').notNull().default(0),
+
+    used_at: timestamp('used_at'),
+
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+);
 
 // ============================================================================
 // MÓDULO: Negocios y sucursales

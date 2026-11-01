@@ -2,6 +2,13 @@ import type { Request, Response, NextFunction } from 'express';
 
 import { AuthError, login, refreshSession, logout } from '../services/auth.service.ts';
 
+import {
+  registerClient,
+  verifyEmail,
+  resendVerificationCode,
+  type RegisterClientInput,
+} from '../services/registration.service.ts';
+
 function handleAuthError(error: unknown, res: Response, next: NextFunction): void {
   if (error instanceof AuthError) {
     res.status(error.statusCode).json({
@@ -82,6 +89,81 @@ export async function logoutController(
     }
 
     const result = await logout(refreshToken.trim());
+
+    res.status(200).json(result);
+  } catch (error: unknown) {
+    handleAuthError(error, res, next);
+  }
+}
+
+// ============================================================================
+// REGISTRO DE CLIENTE
+// ============================================================================
+
+export async function registerClientController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = req.body ?? {};
+
+    const input: RegisterClientInput = {
+      email: body.email,
+      password: body.password,
+      name: body.name,
+      lastname_p: body.lastname_p,
+      lastname_m: body.lastname_m,
+      birth_date: body.birth_date,
+      phone: body.phone,
+    };
+
+    const result = await registerClient(input);
+
+    res.status(201).json(result);
+  } catch (error: unknown) {
+    handleAuthError(error, res, next);
+  }
+}
+
+// ============================================================================
+// VERIFICAR CORREO
+// ============================================================================
+
+export async function verifyEmailController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = req.body ?? {};
+
+    const result = await verifyEmail(
+      body.email,
+      body.code,
+    );
+
+    res.status(200).json(result);
+  } catch (error: unknown) {
+    handleAuthError(error, res, next);
+  }
+}
+
+// ============================================================================
+// REENVIAR CÓDIGO
+// ============================================================================
+
+export async function resendVerificationController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = req.body ?? {};
+
+    const result = await resendVerificationCode(
+      body.email,
+    );
 
     res.status(200).json(result);
   } catch (error: unknown) {
