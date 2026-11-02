@@ -193,7 +193,7 @@ paths:
                 invalidCode:
                   value:
                     error: INVALID_VERIFICATION_CODE
-                    message: "El código es incorrecto. Intentos restantes: 4."
+                    message: 'El código es incorrecto. Intentos restantes: 4.'
         '409':
           description: El correo ya fue verificado.
           content:

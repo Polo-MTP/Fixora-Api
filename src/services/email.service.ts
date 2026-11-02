@@ -2,34 +2,34 @@ import { Resend } from 'resend';
 import { ENV } from '../config/env.ts';
 
 function escapeHtml(value: string): string {
-    return value
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 export async function sendVerificationCodeEmail(
-    email: string,
-    name: string,
-    code: string,
+  email: string,
+  name: string,
+  code: string,
 ): Promise<void> {
-    if (!ENV.RESEND_API_KEY || !ENV.RESEND_FROM_EMAIL) {
-        throw new Error('La configuración de Resend está incompleta.');
-    }
+  if (!ENV.RESEND_API_KEY || !ENV.RESEND_FROM_EMAIL) {
+    throw new Error('La configuración de Resend está incompleta.');
+  }
 
-    const resend = new Resend(ENV.RESEND_API_KEY);
+  const resend = new Resend(ENV.RESEND_API_KEY);
 
-    const safeName = escapeHtml(name);
-    const safeCode = escapeHtml(code);
+  const safeName = escapeHtml(name);
+  const safeCode = escapeHtml(code);
 
-    const { error } = await resend.emails.send({
-        from: ENV.RESEND_FROM_EMAIL,
-        to: email,
-        subject: 'Verifica tu correo electrónico - Fixora',
+  const { error } = await resend.emails.send({
+    from: ENV.RESEND_FROM_EMAIL,
+    to: email,
+    subject: 'Verifica tu correo electrónico - Fixora',
 
-        text: `
+    text: `
 Hola ${name},
 
 Gracias por registrarte en Fixora.
@@ -41,7 +41,7 @@ Este código vence en ${ENV.EMAIL_VERIFICATION_CODE_TTL_MINUTES} minutos.
 Si no solicitaste esta cuenta, puedes ignorar este correo.
     `,
 
-        html: `
+    html: `
       <!DOCTYPE html>
       <html lang="es">
         <head>
@@ -106,10 +106,10 @@ Si no solicitaste esta cuenta, puedes ignorar este correo.
         </body>
       </html>
     `,
-    });
+  });
 
-    if (error) {
-        console.error('Error de Resend:', error);
-        throw new Error('No fue posible enviar el correo de verificación.');
-    }
+  if (error) {
+    console.error('Error de Resend:', error);
+    throw new Error('No fue posible enviar el correo de verificación.');
+  }
 }

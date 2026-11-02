@@ -138,10 +138,7 @@ export async function verifyEmailController(
   try {
     const body = req.body ?? {};
 
-    const result = await verifyEmail(
-      body.email,
-      body.code,
-    );
+    const result = await verifyEmail(body.email, body.code);
 
     res.status(200).json(result);
   } catch (error: unknown) {
@@ -161,9 +158,7 @@ export async function resendVerificationController(
   try {
     const body = req.body ?? {};
 
-    const result = await resendVerificationCode(
-      body.email,
-    );
+    const result = await resendVerificationCode(body.email);
 
     res.status(200).json(result);
   } catch (error: unknown) {
