@@ -5,20 +5,282 @@ info:
   version: 1.0.0
   description: |
     Contrato de la API de Fixora.
-    Incluye autenticación, administración de sesiones y
-    creación de usuarios de prueba para desarrollo.
+    Incluye registro de clientes, verificación de correo,
+    autenticación, administración de sesiones y creación
+    de usuarios de prueba para desarrollo.
 
 servers:
   - url: http://localhost:3000
     description: Servidor local de desarrollo
 
 tags:
+  - name: Registro
+    description: Registro de clientes y verificación de correo electrónico.
   - name: Autenticación
     description: Inicio de sesión y administración de sesiones.
   - name: Desarrollo
     description: Endpoints disponibles únicamente fuera de producción.
 
 paths:
+  /api/auth/register:
+    post:
+      tags:
+        - Registro
+      summary: Registrar cliente
+      description: |
+        Crea una cuenta con el rol cliente y estado inicial por_verificar.
+        Guarda la contraseña mediante hash y los datos personales del cliente.
+        Después de crear la cuenta envía un código de verificación de seis dígitos
+        al correo proporcionado. No genera tokens durante el registro.
+      operationId: registerClient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterClientRequest'
+            example:
+              email: cliente@ejemplo.com
+              password: Cliente123*
+              name: Juan
+              lastname_p: Perez
+              lastname_m: Lopez
+              birth_date: '2000-05-15'
+              phone: '8711234567'
+      responses:
+        '201':
+          description: Cliente registrado y correo de verificación enviado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterClientResponse'
+              example:
+                message: Registro completado. Revisa tu correo electrónico para verificar tu cuenta.
+                user:
+                  id: '42'
+                  email: cliente@ejemplo.com
+                  role: cliente
+                  status: por_verificar
+                verification:
+                  required: true
+                  expiresInMinutes: 10
+        '400':
+          description: Datos de registro inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidInput:
+                  value:
+                    error: INVALID_INPUT
+                    message: Debes proporcionar correo, contraseña, nombre y apellido paterno.
+                invalidEmail:
+                  value:
+                    error: INVALID_EMAIL
+                    message: El correo electrónico no tiene un formato válido.
+                invalidPassword:
+                  value:
+                    error: INVALID_PASSWORD
+                    message: La contraseña debe tener al menos 8 caracteres y no superar los 72 bytes.
+                invalidName:
+                  value:
+                    error: INVALID_NAME
+                    message: El nombre es obligatorio y no puede superar los 100 caracteres.
+                invalidLastname:
+                  value:
+                    error: INVALID_LASTNAME
+                    message: El apellido paterno es obligatorio y no puede superar los 100 caracteres.
+                invalidPhone:
+                  value:
+                    error: INVALID_PHONE
+                    message: El teléfono no puede superar los 30 caracteres.
+                invalidBirthDate:
+                  value:
+                    error: INVALID_BIRTH_DATE
+                    message: La fecha de nacimiento debe tener el formato YYYY-MM-DD y ser válida.
+        '409':
+          description: El correo ya está registrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: EMAIL_ALREADY_REGISTERED
+                message: Ya existe una cuenta registrada con este correo electrónico.
+        '500':
+          description: Error interno o rol cliente no disponible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                roleNotFound:
+                  value:
+                    error: CLIENT_ROLE_NOT_FOUND
+                    message: No se encuentra disponible el rol cliente.
+                internalError:
+                  value:
+                    error: INTERNAL_SERVER_ERROR
+                    message: Error interno del servidor.
+        '503':
+          description: La cuenta se creó, pero no fue posible enviar el correo de verificación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: EMAIL_SEND_FAILED
+                message: La cuenta fue creada, pero no fue posible enviar el código. Puedes solicitar otro envío.
+
+  /api/auth/verify-email:
+    post:
+      tags:
+        - Registro
+      summary: Verificar correo electrónico
+      description: |
+        Comprueba el código de seis dígitos enviado al correo del cliente.
+        El código vence según la configuración del servidor y permite un máximo
+        de intentos configurado. Cuando la verificación es correcta, el código
+        se consume y el estado de la cuenta cambia de por_verificar a activo.
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+            example:
+              email: cliente@ejemplo.com
+              code: '123456'
+      responses:
+        '200':
+          description: Correo electrónico verificado correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEmailResponse'
+              example:
+                message: Correo electrónico verificado correctamente.
+                status: activo
+        '400':
+          description: Código o datos de verificación inválidos, inexistentes o expirados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidInput:
+                  value:
+                    error: INVALID_INPUT
+                    message: Debes proporcionar el correo y el código de verificación.
+                invalidCodeFormat:
+                  value:
+                    error: INVALID_CODE_FORMAT
+                    message: El código debe contener exactamente seis dígitos.
+                invalidVerification:
+                  value:
+                    error: INVALID_VERIFICATION
+                    message: No existe una cuenta pendiente de verificación para esos datos.
+                codeNotFound:
+                  value:
+                    error: VERIFICATION_CODE_NOT_FOUND
+                    message: No existe un código pendiente. Solicita uno nuevo.
+                codeExpired:
+                  value:
+                    error: VERIFICATION_CODE_EXPIRED
+                    message: El código ha expirado. Solicita uno nuevo.
+                invalidCode:
+                  value:
+                    error: INVALID_VERIFICATION_CODE
+                    message: 'El código es incorrecto. Intentos restantes: 4.'
+        '409':
+          description: El correo ya fue verificado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: EMAIL_ALREADY_VERIFIED
+                message: El correo electrónico ya fue verificado.
+        '429':
+          description: Se alcanzó el máximo de intentos de verificación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: VERIFICATION_ATTEMPTS_EXCEEDED
+                message: Se alcanzó el máximo de intentos. Solicita un código nuevo.
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/resend-verification:
+    post:
+      tags:
+        - Registro
+      summary: Reenviar código de verificación
+      description: |
+        Solicita un nuevo código para una cuenta pendiente de verificación.
+        El código pendiente anterior se invalida. El servicio aplica un intervalo
+        mínimo entre reenvíos. Para evitar revelar qué correos están registrados,
+        las cuentas inexistentes o ya verificadas reciben una respuesta genérica.
+      operationId: resendVerificationCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+            example:
+              email: cliente@ejemplo.com
+      responses:
+        '200':
+          description: Solicitud procesada; si la cuenta está pendiente, se envió un nuevo código.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResendVerificationResponse'
+              examples:
+                sent:
+                  value:
+                    message: Se ha enviado un nuevo código de verificación.
+                    verification:
+                      expiresInMinutes: 10
+                      resendAvailableInSeconds: 60
+                generic:
+                  value:
+                    message: Si existe una cuenta pendiente de verificación, recibirás un correo con las instrucciones.
+        '400':
+          description: Correo electrónico inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: INVALID_EMAIL
+                message: Debes proporcionar un correo electrónico válido.
+        '429':
+          description: Todavía no ha transcurrido el intervalo mínimo para reenviar el código.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: RESEND_COOLDOWN
+                message: Espera 35 segundos antes de solicitar otro código.
+        '503':
+          description: No fue posible enviar el correo de verificación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: EMAIL_SEND_FAILED
+                message: No fue posible enviar el correo de verificación. Intenta nuevamente.
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/auth/login:
     post:
       tags:
@@ -264,6 +526,156 @@ paths:
 
 components:
   schemas:
+    RegisterClientRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+        - name
+        - lastname_p
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Correo electrónico que se registrará en Fixora.
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: Contraseña de al menos 8 caracteres y máximo 72 bytes en UTF-8.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Nombre del cliente.
+        lastname_p:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Apellido paterno del cliente.
+        lastname_m:
+          type: [string, 'null']
+          maxLength: 100
+          description: Apellido materno (opcional).
+        birth_date:
+          type: [string, 'null']
+          format: date
+          description: Fecha de nacimiento en formato YYYY-MM-DD (opcional).
+        phone:
+          type: [string, 'null']
+          maxLength: 30
+          description: Número telefónico (opcional).
+
+    RegisterClientResponse:
+      type: object
+      required:
+        - message
+        - user
+        - verification
+      properties:
+        message:
+          type: string
+          example: Registro completado. Revisa tu correo electrónico para verificar tu cuenta.
+        user:
+          type: object
+          required:
+            - id
+            - email
+            - role
+            - status
+          properties:
+            id:
+              type: string
+              example: '42'
+            email:
+              type: string
+              format: email
+              example: cliente@ejemplo.com
+            role:
+              type: string
+              const: cliente
+            status:
+              type: string
+              const: por_verificar
+        verification:
+          type: object
+          required:
+            - required
+            - expiresInMinutes
+          properties:
+            required:
+              type: boolean
+              const: true
+            expiresInMinutes:
+              type: integer
+              example: 10
+
+    VerifyEmailRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - code
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          example: '123456'
+          description: Código numérico de seis dígitos recibido por correo.
+
+    VerifyEmailResponse:
+      type: object
+      required:
+        - message
+        - status
+      properties:
+        message:
+          type: string
+          example: Correo electrónico verificado correctamente.
+        status:
+          type: string
+          const: activo
+
+    ResendVerificationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: Correo electrónico de la cuenta pendiente de verificación.
+
+    ResendVerificationResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: Se ha enviado un nuevo código de verificación.
+        verification:
+          type: object
+          description: Se incluye cuando se genera y envía un nuevo código.
+          required:
+            - expiresInMinutes
+            - resendAvailableInSeconds
+          properties:
+            expiresInMinutes:
+              type: integer
+              example: 10
+            resendAvailableInSeconds:
+              type: integer
+              example: 60
+
     LoginRequest:
       type: object
       additionalProperties: false

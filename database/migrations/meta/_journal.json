@@ -22,6 +22,13 @@
       "when": 1793264079513,
       "tag": "0002_wild_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793520762413,
+      "tag": "0003_add_email_verification_codes",
+      "breakpoints": true
     }
   ]
 }
