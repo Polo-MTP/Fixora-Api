@@ -21,7 +21,7 @@ tags:
   - name: Desarrollo
     description: Endpoints disponibles únicamente fuera de producción.
   - name: Categorías
-    description: Administración y consulta del catálogo de categorías. 
+    description: Administración y consulta del catálogo de categorías.
 
 paths:
   /api/auth/register:
@@ -526,7 +526,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-          
   /api/categories:
     get:
       tags:
@@ -665,7 +664,6 @@ paths:
           description: Categoría no encontrada.
         '409':
           description: La categoría ya está desactivada.
-
 
 components:
   schemas:
@@ -1029,26 +1027,33 @@ components:
     Category:
       type: object
       properties:
-        UniqueID:
+        id:
           type: string
-          example: "1"
+          description: Identificador único de la categoría.
+          example: "123"
         name:
           type: string
-          example: Plomería
+          example: "Plomería"
         slug:
           type: string
-          example: plomeria
-        active:
-          type: boolean
-          example: true
+          example: "plomeria"
         icon_key:
           type:
             - string
-            - 'null'
-          example: icons/plomeria.svg
+            - "null"
+          example: "wrench"
         sort_order:
           type: integer
           example: 1
+        active:
+          type: boolean
+          example: true
+      required:
+        - id
+        - name
+        - slug
+        - sort_order
+        - active
 
     CategoryCreate:
       type: object
@@ -1059,19 +1064,26 @@ components:
           type: string
           minLength: 2
           maxLength: 150
+          example: "Plomería"
         slug:
           type: string
           maxLength: 150
+          example: "plomeria"
         icon_key:
           type:
             - string
-            - 'null'
+            - "null"
           maxLength: 500
+          example: "wrench"
         sort_order:
           type: integer
           minimum: 0
+          default: 0
+          example: 1
         active:
           type: boolean
+          default: true
+          example: true
 
     CategoryUpdate:
       type: object
@@ -1081,32 +1093,63 @@ components:
           type: string
           minLength: 2
           maxLength: 150
+          example: "Instalaciones hidráulicas"
         slug:
           type: string
           maxLength: 150
+          example: "instalaciones-hidraulicas"
         icon_key:
           type:
             - string
-            - 'null'
+            - "null"
           maxLength: 500
+          example: "wrench"
         sort_order:
           type: integer
           minimum: 0
+          example: 2
         active:
           type: boolean
+          example: true
 
     CategoriesResponse:
       type: object
       properties:
         success:
           type: boolean
+          example: true
         message:
           type: string
+          example: "Categorías obtenidas correctamente."
         data:
           type: array
           items:
             $ref: '#/components/schemas/Category'
+      required:
+        - success
+        - message
+        - data
 
+    CategoryErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          enum:
+            - CATEGORY_INVALID_ID
+            - CATEGORY_NOT_FOUND
+            - CATEGORY_SLUG_TAKEN
+            - CATEGORY_INVALID_INPUT
+            - CATEGORY_ALREADY_INACTIVE
+            - INTERNAL_SERVER_ERROR
+          example: CATEGORY_NOT_FOUND
+        message:
+          type: string
+          example: "Categoría no encontrada."
+      required:
+        - error
+        - message
+        
   responses:
     InvalidInput:
       description: Faltan datos obligatorios o tienen un formato inválido.

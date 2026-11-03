@@ -129,7 +129,6 @@ export async function authenticateToken(
       return;
     }
 
-
     // El estado debe corresponder al valor almacenado
     // en el enum de la base de datos.
     const accountState = String(session.userState).trim().toLowerCase();
