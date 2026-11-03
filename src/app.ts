@@ -12,6 +12,8 @@ import { apiRouter } from './routes/index.ts';
 import authRoutes from './routes/auth.routes.ts';
 import testAuthRoutes from './routes/auth.test.routes.ts';
 
+import categoriesRoutes from './routes/categories.routes.ts';
+
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 
 const app = express();
@@ -49,6 +51,9 @@ app.use('/api', apiRouter);
 
 // Autenticación
 app.use('/api/auth', authRoutes);
+
+//Categorias
+app.use('/api/categories', categoriesRoutes);
 
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {

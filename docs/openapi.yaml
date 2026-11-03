@@ -20,6 +20,8 @@ tags:
     description: Inicio de sesión y administración de sesiones.
   - name: Desarrollo
     description: Endpoints disponibles únicamente fuera de producción.
+  - name: Categorías
+    description: Administración y consulta del catálogo de categorías. 
 
 paths:
   /api/auth/register:
@@ -524,6 +526,147 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+          
+  /api/categories:
+    get:
+      tags:
+        - Categorías
+      summary: Consultar categorías activas
+      description: Consulta pública del catálogo de categorías.
+      responses:
+        '200':
+          description: Categorías obtenidas correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoriesResponse'
+        '500':
+          description: Error interno del servidor.
+
+    post:
+      tags:
+        - Categorías
+      summary: Crear una categoría
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryCreate'
+            example:
+              name: Plomería
+              slug: plomeria
+              icon_key: icons/plomeria.svg
+              sort_order: 1
+              active: true
+      responses:
+        '201':
+          description: Categoría creada correctamente.
+        '400':
+          description: Datos inválidos.
+        '401':
+          description: No autenticado.
+        '403':
+          description: No tienes permisos de Administrador.
+        '409':
+          description: El slug ya existe.
+
+  /api/categories/admin/all:
+    get:
+      tags:
+        - Categorías
+      summary: Consultar todas las categorías
+      description: Consulta administrativa de categorías activas e inactivas.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Filtrar por nombre de categoría.
+      responses:
+        '200':
+          description: Listado obtenido correctamente.
+        '401':
+          description: No autenticado.
+        '403':
+          description: Acceso denegado.
+
+  /api/categories/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        description: Identificador BIGINT de la categoría.
+
+    get:
+      tags:
+        - Categorías
+      summary: Consultar una categoría activa
+      responses:
+        '200':
+          description: Categoría obtenida correctamente.
+        '400':
+          description: Identificador inválido.
+        '404':
+          description: Categoría no encontrada.
+
+    patch:
+      tags:
+        - Categorías
+      summary: Actualizar una categoría
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryUpdate'
+            example:
+              name: Plomería residencial
+              icon_key: icons/plomeria.svg
+              sort_order: 5
+              active: true
+      responses:
+        '200':
+          description: Categoría actualizada correctamente.
+        '400':
+          description: Datos inválidos.
+        '401':
+          description: No autenticado.
+        '403':
+          description: Acceso denegado.
+        '404':
+          description: Categoría no encontrada.
+        '409':
+          description: Slug duplicado.
+
+    delete:
+      tags:
+        - Categorías
+      summary: Desactivar una categoría
+      description: Desactivación lógica; el registro no se elimina físicamente.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Categoría desactivada correctamente.
+        '401':
+          description: No autenticado.
+        '403':
+          description: Acceso denegado.
+        '404':
+          description: Categoría no encontrada.
+        '409':
+          description: La categoría ya está desactivada.
+
+
 components:
   schemas:
     RegisterClientRequest:
@@ -883,6 +1026,87 @@ components:
               - por_verificar
               - por_aprobar
 
+    Category:
+      type: object
+      properties:
+        UniqueID:
+          type: string
+          example: "1"
+        name:
+          type: string
+          example: Plomería
+        slug:
+          type: string
+          example: plomeria
+        active:
+          type: boolean
+          example: true
+        icon_key:
+          type:
+            - string
+            - 'null'
+          example: icons/plomeria.svg
+        sort_order:
+          type: integer
+          example: 1
+
+    CategoryCreate:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 150
+        slug:
+          type: string
+          maxLength: 150
+        icon_key:
+          type:
+            - string
+            - 'null'
+          maxLength: 500
+        sort_order:
+          type: integer
+          minimum: 0
+        active:
+          type: boolean
+
+    CategoryUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 150
+        slug:
+          type: string
+          maxLength: 150
+        icon_key:
+          type:
+            - string
+            - 'null'
+          maxLength: 500
+        sort_order:
+          type: integer
+          minimum: 0
+        active:
+          type: boolean
+
+    CategoriesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+
   responses:
     InvalidInput:
       description: Faltan datos obligatorios o tienen un formato inválido.
@@ -913,3 +1137,9 @@ components:
           example:
             error: INTERNAL_SERVER_ERROR
             message: Error interno del servidor.
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
