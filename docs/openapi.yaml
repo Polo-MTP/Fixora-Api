@@ -4,24 +4,73 @@ info:
   title: Fixora API
   version: 1.0.0
   description: |
-    Contrato de la API de Fixora.
-    Incluye registro de clientes, verificación de correo,
-    autenticación, administración de sesiones y creación
-    de usuarios de prueba para desarrollo.
+    Contrato de la API de Fixora, compartido por Android y Angular.
+
+    ## Convenciones
+
+    **Autenticación.** Los endpoints protegidos piden `Authorization: Bearer <accessToken>`.
+    El token se obtiene en `POST /api/auth/login` y se renueva con `POST /api/auth/refresh`.
+
+    **Identificadores.** Todos los ids son BIGINT y viajan como texto (`"15"`), porque JavaScript
+    no representa con exactitud enteros de 64 bits.
+
+    **Fechas.** `date` en formato `YYYY-MM-DD`; fecha y hora en ISO 8601 con zona (`2026-11-03T18:30:00Z`).
+    Montos de dinero como texto decimal (`"350.00"`).
+
+    **Respuestas correctas.** `{ success: true, message, data }`. Las listas agregan `pagination`.
+
+    **Paginación.** Las listas aceptan `?page=1&limit=20` (`limit` máximo 100) y responden
+    `pagination: { page, limit, total, total_pages }`.
+
+    **Errores.** Siempre `{ error: "CODIGO", message: "Texto legible" }`. El código es estable y
+    sirve para decidir qué hacer en la app; el mensaje se puede mostrar al usuario. Los errores de
+    validación agregan `details` con el campo y el motivo.
+
+    | HTTP | Cuándo |
+    |---|---|
+    | 400 | Datos inválidos, JSON mal formado (`INVALID_JSON`) |
+    | 401 | Falta el token o ya no es válido |
+    | 403 | La cuenta no tiene permiso o no está activa |
+    | 404 | El recurso o la ruta no existe (`ROUTE_NOT_FOUND`) |
+    | 409 | Conflicto con el estado actual (duplicado, ya procesado) |
+    | 429 | Demasiados intentos |
+    | 500 | Error inesperado (`INTERNAL_SERVER_ERROR`) |
+
+    **Endpoints planeados.** Los que dicen **[Planeado · API-XX]** todavía no existen: son el
+    contrato que implementará ese ticket, para que las apps puedan avanzar en paralelo. Llevan
+    también `x-estado: planeado` y `x-ticket`.
 
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:3001
     description: Servidor local de desarrollo
 
 tags:
+  - name: Sistema
+    description: Estado del servicio.
   - name: Registro
     description: Registro de clientes y verificación de correo electrónico.
   - name: Autenticación
-    description: Inicio de sesión y administración de sesiones.
-  - name: Desarrollo
-    description: Endpoints disponibles únicamente fuera de producción.
+    description: Inicio de sesión, sesiones y recuperación de contraseña.
+  - name: Mi cuenta
+    description: Datos personales, direcciones, dispositivos y notificaciones del usuario que inició sesión.
+  - name: Archivos
+    description: Subida de archivos (documentos, fotos y evidencias).
+  - name: Proveedores
+    description: Registro de proveedores y seguimiento de su solicitud.
+  - name: Sucursales
+    description: Empleados, categorías, portafolio y ficha pública de cada sucursal.
+  - name: Búsqueda
+    description: Búsqueda de proveedores cercanos para el mapa.
+  - name: Solicitudes de servicio
+    description: Creación, seguimiento y cambios de estado de una solicitud.
+  - name: Administración
+    description: Revisión de proveedores y alta de personal interno.
+  - name: Usuarios
+    description: Consulta de cuentas (solo administrador).
   - name: Categorías
     description: Administración y consulta del catálogo de categorías.
+  - name: Desarrollo
+    description: Endpoints disponibles únicamente fuera de producción.
 
 paths:
   /api/auth/register:
@@ -35,6 +84,7 @@ paths:
         Después de crear la cuenta envía un código de verificación de seis dígitos
         al correo proporcionado. No genera tokens durante el registro.
       operationId: registerClient
+      security: []
       requestBody:
         required: true
         content:
@@ -146,6 +196,7 @@ paths:
         de intentos configurado. Cuando la verificación es correcta, el código
         se consume y el estado de la cuenta cambia de por_verificar a activo.
       operationId: verifyEmail
+      security: []
       requestBody:
         required: true
         content:
@@ -228,6 +279,7 @@ paths:
         mínimo entre reenvíos. Para evitar revelar qué correos están registrados,
         las cuentas inexistentes o ya verificadas reciben una respuesta genérica.
       operationId: resendVerificationCode
+      security: []
       requestBody:
         required: true
         content:
@@ -293,6 +345,7 @@ paths:
         La cuenta debe estar activa y su rol habilitado.
         Devuelve un token de acceso y un token de renovación.
       operationId: login
+      security: []
       requestBody:
         required: true
         content:
@@ -359,6 +412,7 @@ paths:
         El token de renovación anterior deja de ser válido después
         de una renovación exitosa.
       operationId: refreshSession
+      security: []
       requestBody:
         required: true
         content:
@@ -408,6 +462,7 @@ paths:
       description: |
         Revoca la sesión asociada al token de renovación proporcionado.
       operationId: logout
+      security: []
       requestBody:
         required: true
         content:
@@ -451,6 +506,7 @@ paths:
         Este endpoint solo está disponible cuando NODE_ENV
         no tiene el valor production.
       operationId: createTestUser
+      security: []
       requestBody:
         required: true
         content:
@@ -532,6 +588,7 @@ paths:
         - Categorías
       summary: Consultar categorías activas
       description: Consulta pública del catálogo de categorías.
+      security: []
       responses:
         '200':
           description: Categorías obtenidas correctamente.
@@ -607,6 +664,7 @@ paths:
       tags:
         - Categorías
       summary: Consultar una categoría activa
+      security: []
       responses:
         '200':
           description: Categoría obtenida correctamente.
@@ -665,7 +723,1802 @@ paths:
         '409':
           description: La categoría ya está desactivada.
 
+  # ==========================================================================
+  # Implementados (sin documentar hasta ahora)
+  # ==========================================================================
+
+  /api/health:
+    get:
+      tags:
+        - Sistema
+      summary: Estado del servicio
+      description: Indica si la API responde y si puede hablar con PostgreSQL y Redis.
+      security: []
+      responses:
+        '200':
+          description: La API está en línea. Revisa `database` y `redis` para saber si sus servicios responden.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/HealthStatus'
+
+  /api/users:
+    get:
+      tags:
+        - Usuarios
+      summary: Listar usuarios
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Usuarios registrados.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/users/{id}:
+    get:
+      tags:
+        - Usuarios
+      summary: Consultar un usuario
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Usuario encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/AdminUser'
+        '400':
+          description: El id no es un número (`USER_INVALID_ID`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: No existe el usuario (`USER_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # Planeados · Módulos 1 y 2 (cliente): recuperación de contraseña y Mi cuenta
+  # ==========================================================================
+
+  /api/auth/forgot-password:
+    post:
+      tags:
+        - Autenticación
+      summary: '[Planeado · API-9] Pedir código para restablecer la contraseña'
+      description: |
+        Envía al correo un código de 6 dígitos con vigencia corta. Responde igual exista o no la
+        cuenta, para no revelar qué correos están registrados.
+      x-estado: planeado
+      x-ticket: API-9
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: Si la cuenta existe, se envió el código.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Se pidió otro código antes de tiempo (`RESEND_COOLDOWN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/reset-password:
+    post:
+      tags:
+        - Autenticación
+      summary: '[Planeado · API-9] Restablecer la contraseña con el código'
+      description: Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
+      x-estado: planeado
+      x-ticket: API-9
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Contraseña actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Datos inválidos o código incorrecto o vencido (`INVALID_RESET_CODE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Demasiados intentos con el código (`RESET_ATTEMPTS_EXCEEDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/me:
+    get:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Consultar mi perfil'
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Perfil del usuario que inició sesión.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Editar mis datos personales'
+      description: El correo no se cambia por aquí.
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Datos actualizados.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/password:
+    patch:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Cambiar mi contraseña'
+      description: Cierra las demás sesiones; la actual sigue abierta.
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+      responses:
+        '200':
+          description: Contraseña actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: La contraseña nueva no cumple las reglas, o la actual es incorrecta (`INVALID_CURRENT_PASSWORD`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/addresses:
+    get:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Listar mis direcciones'
+      description: Solo las activas; la principal va primero.
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Direcciones guardadas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Guardar una dirección'
+      description: Si es la primera o llega con `is_main` en `true`, queda como principal.
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '201':
+          description: Dirección guardada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/addresses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Editar una dirección'
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressUpdate'
+      responses:
+        '200':
+          description: Dirección actualizada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Borrar una dirección'
+      description: Baja lógica. Si era la principal, la más reciente pasa a ser principal.
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dirección borrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/me/addresses/{id}/main:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-10] Marcar una dirección como principal'
+      x-estado: planeado
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: La dirección ahora es la principal.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================================================
+  # Planeados · Archivos
+  # ==========================================================================
+
+  /api/files:
+    post:
+      tags:
+        - Archivos
+      summary: '[Planeado · API-8] Subir un archivo'
+      description: |
+        Guarda el archivo y regresa su `file_key`. Ese valor es el que se manda después en los
+        demás endpoints (fotos de una solicitud, evidencias, portafolio). Imágenes JPG, PNG o WEBP
+        y PDF; máximo 10 MB.
+      x-estado: planeado
+      x-ticket: API-8
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - purpose
+              properties:
+                file:
+                  type: string
+                  format: binary
+                purpose:
+                  $ref: '#/components/schemas/FilePurpose'
+      responses:
+        '201':
+          description: Archivo guardado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UploadedFile'
+        '400':
+          description: Falta el archivo o el tipo no está permitido (`FILE_TYPE_NOT_ALLOWED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: El archivo supera el tamaño máximo (`PAYLOAD_TOO_LARGE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # Planeados · Módulos 1 y 2 (proveedor): registro y seguimiento
+  # ==========================================================================
+
+  /api/document-types:
+    get:
+      tags:
+        - Proveedores
+      summary: '[Planeado · API-12] Documentos que pide el registro'
+      description: Catálogo público para armar el paso de documentos según el tipo de proveedor.
+      x-estado: planeado
+      x-ticket: API-12
+      security: []
+      parameters:
+        - in: query
+          name: supplier_type
+          required: true
+          schema:
+            $ref: '#/components/schemas/SupplierType'
+      responses:
+        '200':
+          description: Documentos activos que aplican a ese tipo.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/DocumentType'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/supplier-applications:
+    post:
+      tags:
+        - Proveedores
+      summary: '[Planeado · API-11] Enviar la solicitud para ser proveedor'
+      description: |
+        Registro web completo en una sola petición `multipart/form-data`:
+
+        - `data`: JSON con el encargado, el negocio, los locales (dirección, horarios, categorías)
+          y, opcionalmente, empleados.
+        - `documents[<type_document_id>]`: un archivo por cada documento obligatorio.
+
+        Crea la cuenta del encargado en estado `por_aprobar` y la solicitud en `pendiente`.
+        Emite el evento «solicitud de proveedor enviada» (avisa al administrador y manda el correo
+        de recibido).
+      x-estado: planeado
+      x-ticket: API-11
+      security: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - data
+              properties:
+                data:
+                  $ref: '#/components/schemas/SupplierApplicationCreate'
+                documents:
+                  type: object
+                  description: Archivos indexados por `type_document_id`, por ejemplo `documents[3]`.
+                  additionalProperties:
+                    type: string
+                    format: binary
+            encoding:
+              data:
+                contentType: application/json
+      responses:
+        '201':
+          description: Solicitud recibida.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierApplication'
+        '400':
+          description: Datos inválidos o falta un documento obligatorio (`MISSING_REQUIRED_DOCUMENT`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: El correo, el RFC o la identificación fiscal ya están registrados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/supplier-applications/me:
+    get:
+      tags:
+        - Proveedores
+      summary: '[Planeado · API-13] Ver el estado de mi solicitud'
+      description: |
+        Para el sitio web del proveedor mientras está en revisión. Incluye el resultado y los
+        comentarios de cada documento.
+
+        Nota para API-13: hoy el login responde 403 `ACCOUNT_NOT_ACTIVE` a las cuentas
+        `por_aprobar`. Para usar este endpoint, el login debe permitirles una sesión limitada a la
+        consulta y corrección de su solicitud.
+      x-estado: planeado
+      x-ticket: API-13
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Solicitud del proveedor que inició sesión.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierApplication'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/supplier-applications/me/documents/{typeDocumentId}:
+    parameters:
+      - in: path
+        name: typeDocumentId
+        required: true
+        schema:
+          type: string
+        description: Id del tipo de documento que se vuelve a subir.
+    put:
+      tags:
+        - Proveedores
+      summary: '[Planeado · API-12] Volver a subir un documento'
+      description: Solo cuando la solicitud está en `documentacion_incompleta`. Al subir todos los rechazados, la solicitud regresa a `pendiente`.
+      x-estado: planeado
+      x-ticket: API-12
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                due_date:
+                  type: string
+                  format: date
+                  description: Obligatoria si el tipo de documento pide vigencia.
+      responses:
+        '200':
+          description: Documento reemplazado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierDocument'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: La solicitud no está en `documentacion_incompleta` (`APPLICATION_NOT_EDITABLE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # Planeados · Administración (revisión de proveedores y personal interno)
+  # ==========================================================================
+
+  /api/admin/supplier-applications:
+    get:
+      tags:
+        - Administración
+      summary: '[Planeado · API-13] Listar solicitudes de proveedor'
+      x-estado: planeado
+      x-ticket: API-13
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: state
+          schema:
+            $ref: '#/components/schemas/SupplierApplicationState'
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Busca por nombre del negocio, del encargado o correo.
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Solicitudes, las más antiguas primero.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SupplierApplicationSummary'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/supplier-applications/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Administración
+      summary: '[Planeado · API-13] Ver el desglose de una solicitud'
+      description: Encargado, negocio, locales, empleados y documentos con su revisión.
+      x-estado: planeado
+      x-ticket: API-13
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Solicitud completa.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierApplication'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/supplier-applications/{id}/resolution:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Administración
+      summary: '[Planeado · API-13] Resolver una solicitud'
+      description: |
+        `aprobada` solo si todos los documentos están aprobados; activa la cuenta. `rechazada` y
+        `documentacion_incompleta` piden comentario. Emite el evento «solicitud resuelta» y se
+        avisa al proveedor por correo.
+      x-estado: planeado
+      x-ticket: API-13
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationResolution'
+      responses:
+        '200':
+          description: Solicitud resuelta.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierApplication'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Ya estaba resuelta, o hay documentos sin aprobar (`DOCUMENTS_PENDING`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/supplier-documents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags:
+        - Administración
+      summary: '[Planeado · API-13] Aprobar o rechazar un documento'
+      description: Emite el evento «documento aprobado o rechazado».
+      x-estado: planeado
+      x-ticket: API-13
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentReview'
+      responses:
+        '200':
+          description: Revisión guardada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierDocument'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/staff:
+    post:
+      tags:
+        - Administración
+      summary: '[Planeado · API-14] Dar de alta un administrador o soporte'
+      description: Solo el administrador principal. La cuenta nace `activo` y entra solo por web.
+      x-estado: planeado
+      x-ticket: API-14
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffCreate'
+      responses:
+        '201':
+          description: Cuenta creada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: El correo ya está registrado (`EMAIL_ALREADY_REGISTERED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # Planeados · Módulo 3: sucursal, empleados, categorías, portafolio y ficha
+  # ==========================================================================
+
+  /api/branches/{id}/employees:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-19] Listar empleados de una sucursal'
+      description: Para el proveedor dueño y el gerente de la sucursal.
+      x-estado: planeado
+      x-ticket: API-19
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Empleados activos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Employee'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-19] Dar de alta un empleado'
+      description: Crea su usuario (gerente o empleado) y lo asigna a la sucursal.
+      x-estado: planeado
+      x-ticket: API-19
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeInput'
+      responses:
+        '201':
+          description: Empleado creado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Employee'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: El correo ya está registrado (`EMAIL_ALREADY_REGISTERED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/branches/{id}/categories:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-20] Reemplazar las categorías de una sucursal'
+      description: Manda la lista completa; las que no vengan se desactivan.
+      x-estado: planeado
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/BranchCategoryInput'
+      responses:
+        '200':
+          description: Categorías actualizadas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/BranchCategory'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/branches/{id}/portfolio:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-20] Listar trabajos del portafolio'
+      x-estado: planeado
+      x-ticket: API-20
+      security: []
+      responses:
+        '200':
+          description: Trabajos publicados de la sucursal.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PortfolioWork'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-20] Agregar un trabajo al portafolio'
+      description: Las fotos se suben antes con `POST /api/files` (`purpose` = `portafolio`).
+      x-estado: planeado
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortfolioWorkInput'
+      responses:
+        '201':
+          description: Trabajo agregado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PortfolioWork'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/portfolio/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-20] Quitar un trabajo del portafolio'
+      x-estado: planeado
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Trabajo quitado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/supplier-documents/{id}/visibility:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-20] Mostrar u ocultar un certificado en la ficha'
+      description: Solo documentos aprobados. Los de identidad y domicilio nunca son públicos.
+      x-estado: planeado
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - is_public
+              properties:
+                is_public:
+                  type: boolean
+      responses:
+        '200':
+          description: Visibilidad actualizada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El documento no se puede publicar (`DOCUMENT_NOT_PUBLISHABLE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/branches/{id}/public:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Sucursales
+      summary: '[Planeado · API-21] Ficha pública de una sucursal'
+      description: Lo que ve el cliente al tocar un proveedor en el mapa.
+      x-estado: planeado
+      x-ticket: API-21
+      security: []
+      responses:
+        '200':
+          description: Ficha pública.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BranchPublicProfile'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================================================
+  # Planeados · Módulo 4: búsqueda y mapa
+  # ==========================================================================
+
+  /api/search/branches:
+    get:
+      tags:
+        - Búsqueda
+      summary: '[Planeado · API-23] Buscar proveedores cercanos'
+      description: |
+        Sucursales dentro del radio que aceptan solicitudes. Con `available_now` en `true` solo
+        las que están dentro de su horario. Por defecto ordena por cercanía y da prioridad a los
+        independientes (algoritmo de API-24).
+      x-estado: planeado
+      x-ticket: API-23
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: lat
+          required: true
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - in: query
+          name: lng
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+        - in: query
+          name: radius_km
+          schema:
+            type: number
+            minimum: 1
+            maximum: 50
+            default: 10
+        - in: query
+          name: category_id
+          schema:
+            type: string
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum:
+              - recomendado
+              - distancia
+              - calificacion
+              - precio
+            default: recomendado
+        - in: query
+          name: available_now
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Resultados para el mapa.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/BranchSearchResult'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # Planeados · Módulo 5: dispositivos y notificaciones
+  # ==========================================================================
+
+  /api/me/devices:
+    post:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-16] Registrar el token del dispositivo'
+      description: La app lo manda al iniciar sesión. Si el token ya existe, se reasigna a este usuario.
+      x-estado: planeado
+      x-ticket: API-16
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceTokenInput'
+      responses:
+        '201':
+          description: Token registrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/devices/{token}:
+    parameters:
+      - in: path
+        name: token
+        required: true
+        schema:
+          type: string
+        description: Token de FCM codificado para URL.
+    delete:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-16] Desactivar el token del dispositivo'
+      description: La app lo llama al cerrar sesión.
+      x-estado: planeado
+      x-ticket: API-16
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Token desactivado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/me/notifications:
+    get:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-25] Centro de notificaciones'
+      description: Las más recientes primero.
+      x-estado: planeado
+      x-ticket: API-25
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: unread
+          schema:
+            type: boolean
+          description: Con `true`, solo las no leídas.
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Notificaciones del usuario.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+                      unread_count:
+                        type: integer
+                        example: 3
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/notifications/{id}/read:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-25] Marcar una notificación como leída'
+      x-estado: planeado
+      x-ticket: API-25
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Marcada como leída.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/me/notifications/read-all:
+    post:
+      tags:
+        - Mi cuenta
+      summary: '[Planeado · API-25] Marcar todas como leídas'
+      x-estado: planeado
+      x-ticket: API-25
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Todas marcadas como leídas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # Planeados · Módulo 6: solicitudes de servicio
+  # ==========================================================================
+
+  /api/branches/{id}/availability:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-27] Horarios libres para agendar'
+      description: Según el horario de la sucursal, los bloqueos de sus técnicos y la duración de la categoría.
+      x-estado: planeado
+      x-ticket: API-27
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: category_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: date
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Horarios disponibles ese día.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/TimeSlot'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/service-requests:
+    get:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-26] Listar mis solicitudes'
+      description: |
+        El cliente ve las suyas; el proveedor y el gerente, las de sus sucursales; el empleado, las
+        que tiene asignadas o le llegaron.
+      x-estado: planeado
+      x-ticket: API-26
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/ServiceRequestStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Solicitudes, las más recientes primero.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ServiceRequest'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-27] Crear una solicitud normal o agendada'
+      description: |
+        Sin `scheduled_at` queda `pendiente` y corre el temporizador de 5 minutos (`expires_at`).
+        Con `scheduled_at` también espera la respuesta del proveedor; al aceptarla pasa a `agendada`.
+        `client_uuid` evita duplicados si la app reintenta: con el mismo valor se regresa la misma solicitud.
+      x-estado: planeado
+      x-ticket: API-27
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequestCreate'
+      responses:
+        '201':
+          description: Solicitud enviada al proveedor.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: La sucursal no acepta solicitudes ahora o el horario ya no está libre (`BRANCH_NOT_AVAILABLE`, `SLOT_TAKEN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/emergency:
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-28] Botón de emergencia'
+      description: |
+        Solo pide la categoría y la ubicación actual. Se avisa a la vez a los técnicos cercanos
+        disponibles; el primero que acepta se queda con la solicitud y a los demás se les retira.
+      x-estado: planeado
+      x-ticket: API-28
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyRequestCreate'
+      responses:
+        '201':
+          description: Emergencia enviada a los técnicos cercanos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: No hay técnicos disponibles cerca (`NO_TECHNICIANS_AVAILABLE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-26] Ver una solicitud'
+      x-estado: planeado
+      x-ticket: API-26
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Detalle de la solicitud.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServiceRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/service-requests/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-30] Aceptar una solicitud (proveedor)'
+      description: Detiene el temporizador. Emite el evento «solicitud aceptada».
+      x-estado: planeado
+      x-ticket: API-30
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                employee_id:
+                  type: string
+                  description: Técnico que atenderá. Si no viene, el que aceptó.
+      responses:
+        '200':
+          description: Solicitud aceptada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServiceRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Ya expiró, la canceló el cliente o la aceptó otro técnico (`REQUEST_NOT_PENDING`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-30] Rechazar una solicitud (proveedor)'
+      description: En una emergencia solo la retira para ese técnico; en una normal, avisa al cliente para que elija otro.
+      x-estado: planeado
+      x-ticket: API-30
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Solicitud rechazada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La solicitud ya no está pendiente (`REQUEST_NOT_PENDING`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-26] Avanzar el estado (técnico)'
+      description: |
+        Transiciones permitidas: `aceptada`/`agendada` → `en_camino` → `llegado` → `completada`.
+        Guarda la ubicación del técnico como punto clave en el historial. Emite el evento del
+        cambio de estado.
+      x-estado: planeado
+      x-ticket: API-26
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusChange'
+      responses:
+        '200':
+          description: Estado actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La transición no está permitida desde el estado actual (`INVALID_STATUS_TRANSITION`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-31] Cancelar una solicitud'
+      description: |
+        El cliente puede cancelar mientras esté `pendiente` sin dar motivo. Después de aceptada,
+        quien cancele debe dar motivo; el proveedor además puede adjuntar evidencia (subida antes
+        con `POST /api/files`, `purpose` = `evidencia_cancelacion`). Sin evidencia, el proveedor
+        recibe la penalización del módulo 12.
+      x-estado: planeado
+      x-ticket: API-31
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      responses:
+        '200':
+          description: Solicitud cancelada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          description: Falta el motivo después de aceptada (`CANCEL_REASON_REQUIRED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Ya está completada, cancelada o expirada (`REQUEST_ALREADY_CLOSED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Solicitudes de servicio
+      summary: '[Planeado · API-26] Historial de la solicitud'
+      description: Cada cambio de estado con quién lo hizo, cuándo y, si aplica, dónde.
+      x-estado: planeado
+      x-ticket: API-26
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Historial en orden cronológico.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ServiceRequestEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        pattern: '^[1-9]\d{0,17}$'
+      description: Identificador BIGINT como texto.
+
+    Page:
+      in: query
+      name: page
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    Limit:
+      in: query
+      name: limit
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
   schemas:
     RegisterClientRequest:
       type: object
@@ -1150,6 +3003,1300 @@ components:
         - error
         - message
 
+    # ------------------------------------------------------------------------
+    # Convenciones comunes
+    # ------------------------------------------------------------------------
+
+    SuccessEnvelope:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operación realizada correctamente.
+
+    Pagination:
+      type: object
+      required:
+        - page
+        - limit
+        - total
+        - total_pages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 20
+        total:
+          type: integer
+          minimum: 0
+          example: 57
+        total_pages:
+          type: integer
+          minimum: 0
+          example: 3
+
+    ValidationErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            details:
+              type: array
+              items:
+                type: object
+                required:
+                  - field
+                  - message
+                properties:
+                  field:
+                    type: string
+                    example: phone
+                  message:
+                    type: string
+                    example: El teléfono debe tener 10 dígitos.
+
+    Money:
+      type: string
+      pattern: '^\d+(\.\d{1,2})?$'
+      description: Cantidad en pesos como texto decimal.
+      example: '350.00'
+
+    # ------------------------------------------------------------------------
+    # Sistema y usuarios
+    # ------------------------------------------------------------------------
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        environment:
+          type: string
+          example: development
+        database:
+          type: string
+          enum:
+            - connected
+            - error
+        redis:
+          type: string
+          enum:
+            - connected
+            - error
+        uptime:
+          type: number
+          description: Segundos desde que arrancó el proceso.
+          example: 152.3
+        timestamp:
+          type: string
+          format: date-time
+
+    AdminUser:
+      type: object
+      description: Cuenta tal como la regresa hoy `/api/users` (todavía con `UniqueID` y `role_id`).
+      properties:
+        UniqueID:
+          type: string
+          example: '12'
+        email:
+          type: string
+          format: email
+        role_id:
+          type: string
+          example: '1'
+        state:
+          $ref: '#/components/schemas/UserState'
+
+    UserState:
+      type: string
+      enum:
+        - por_verificar
+        - por_aprobar
+        - activo
+        - suspendido
+        - inactivo
+
+    # ------------------------------------------------------------------------
+    # Mi cuenta
+    # ------------------------------------------------------------------------
+
+    EmailRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          example: ana@correo.com
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - email
+        - code
+        - new_password
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          example: '482913'
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 72
+
+    Profile:
+      type: object
+      required:
+        - id
+        - email
+        - role
+        - state
+        - name
+        - lastname_p
+      properties:
+        id:
+          type: string
+          example: '12'
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+        state:
+          $ref: '#/components/schemas/UserState'
+        name:
+          type: string
+          example: Ana
+        lastname_p:
+          type: string
+          example: Pérez
+        lastname_m:
+          type:
+            - string
+            - 'null'
+          example: López
+        birth_date:
+          type:
+            - string
+            - 'null'
+          format: date
+          example: '2000-05-10'
+        phone:
+          type:
+            - string
+            - 'null'
+          example: '5512345678'
+
+    ProfileUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        lastname_p:
+          type: string
+          minLength: 1
+          maxLength: 100
+        lastname_m:
+          type:
+            - string
+            - 'null'
+          maxLength: 100
+        birth_date:
+          type: string
+          format: date
+        phone:
+          type: string
+          pattern: '^\d{10}$'
+
+    PasswordChange:
+      type: object
+      required:
+        - current_password
+        - new_password
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 72
+
+    AddressInput:
+      type: object
+      required:
+        - street
+        - num_ext
+        - colony
+        - municipality
+        - state
+        - postal_code
+        - latitude
+        - longitude
+      properties:
+        alias:
+          type: string
+          maxLength: 100
+          example: Casa
+        reference:
+          type: string
+          maxLength: 255
+          example: Portón negro, junto a la tienda.
+        street:
+          type: string
+          maxLength: 255
+          example: Av. Juárez
+        num_ext:
+          type: string
+          maxLength: 50
+          example: '120'
+        num_int:
+          type: string
+          maxLength: 50
+          example: 3B
+        colony:
+          type: string
+          maxLength: 150
+          example: Centro
+        municipality:
+          type: string
+          maxLength: 150
+          example: Cuauhtémoc
+        state:
+          type: string
+          maxLength: 150
+          example: Ciudad de México
+        postal_code:
+          type: string
+          pattern: '^\d{5}$'
+          example: '06000'
+        country:
+          type: string
+          default: México
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          example: 19.4326
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+          example: -99.1332
+        is_main:
+          type: boolean
+          default: false
+
+    AddressUpdate:
+      type: object
+      minProperties: 1
+      description: Los mismos campos de `AddressInput`, todos opcionales.
+      properties:
+        alias:
+          type: string
+        reference:
+          type: string
+        street:
+          type: string
+        num_ext:
+          type: string
+        num_int:
+          type: string
+        colony:
+          type: string
+        municipality:
+          type: string
+        state:
+          type: string
+        postal_code:
+          type: string
+          pattern: '^\d{5}$'
+        country:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    Address:
+      allOf:
+        - type: object
+          required:
+            - id
+          properties:
+            id:
+              type: string
+              example: '31'
+        - $ref: '#/components/schemas/AddressInput'
+
+    # ------------------------------------------------------------------------
+    # Archivos
+    # ------------------------------------------------------------------------
+
+    FilePurpose:
+      type: string
+      description: Para qué se usará el archivo; define qué tipos y quién puede verlo.
+      enum:
+        - foto_perfil
+        - portafolio
+        - solicitud
+        - evidencia_cancelacion
+        - cierre_servicio
+
+    UploadedFile:
+      type: object
+      required:
+        - file_key
+        - mime_type
+        - size_bytes
+      properties:
+        file_key:
+          type: string
+          example: solicitud/2026/11/8f1c2e.jpg
+        mime_type:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - application/pdf
+        size_bytes:
+          type: integer
+          example: 284133
+        url:
+          type: string
+          format: uri
+          description: Enlace temporal para mostrar el archivo.
+
+    # ------------------------------------------------------------------------
+    # Proveedores
+    # ------------------------------------------------------------------------
+
+    SupplierType:
+      type: string
+      enum:
+        - independiente
+        - empresa
+
+    SupplierApplicationState:
+      type: string
+      description: '`documentacion_incompleta` requiere migración: hoy el enum de la base solo tiene pendiente, aprobada y rechazada.'
+      enum:
+        - pendiente
+        - aprobada
+        - rechazada
+        - documentacion_incompleta
+
+    DocumentType:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '3'
+        name:
+          type: string
+          example: Constancia de Situación Fiscal (RFC)
+        description:
+          type:
+            - string
+            - 'null'
+        requires_expiration_date:
+          type: boolean
+        mandatory:
+          type: boolean
+        supplier_type:
+          type: string
+          enum:
+            - independiente
+            - empresa
+            - ambos
+
+    ScheduleInput:
+      type: object
+      required:
+        - day_of_week
+        - open_time
+        - close_time
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 = domingo … 6 = sábado.
+        open_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          example: '09:00'
+        close_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+          example: '18:00'
+
+    BranchCategoryInput:
+      type: object
+      required:
+        - category_id
+        - base_price
+      properties:
+        category_id:
+          type: string
+          example: '1'
+        base_price:
+          $ref: '#/components/schemas/Money'
+        duration_minutes:
+          type: integer
+          minimum: 15
+          default: 60
+
+    BranchCategory:
+      allOf:
+        - $ref: '#/components/schemas/BranchCategoryInput'
+        - type: object
+          properties:
+            category_name:
+              type: string
+              example: Plomería
+            icon_key:
+              type:
+                - string
+                - 'null'
+
+    EmployeeInput:
+      type: object
+      required:
+        - email
+        - password
+        - name
+        - lastname_p
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          description: Contraseña inicial; el empleado la cambia desde Mi cuenta.
+        name:
+          type: string
+        lastname_p:
+          type: string
+        lastname_m:
+          type: string
+        phone:
+          type: string
+          pattern: '^\d{10}$'
+        role:
+          type: string
+          enum:
+            - gerente
+            - empleado
+
+    Employee:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '7'
+        user_id:
+          type: string
+        branch_id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        lastname_p:
+          type: string
+        role:
+          type: string
+          enum:
+            - gerente
+            - empleado
+        can_attend:
+          type: boolean
+          description: Si puede recibir solicitudes como técnico.
+        active:
+          type: boolean
+
+    BusinessInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          example: Plomería Hernández
+        tax_identification:
+          type: string
+          maxLength: 50
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          pattern: '^\d{10}$'
+
+    BranchInput:
+      type: object
+      required:
+        - name
+        - address
+        - schedules
+        - categories
+      properties:
+        name:
+          type: string
+          example: Sucursal Centro
+        phone:
+          type: string
+          pattern: '^\d{10}$'
+        email:
+          type: string
+          format: email
+        description:
+          type: string
+        address:
+          $ref: '#/components/schemas/AddressInput'
+        schedules:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ScheduleInput'
+        categories:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/BranchCategoryInput'
+        employees:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeInput'
+        manager_is_owner:
+          type: boolean
+          default: true
+          description: Si el encargado queda como gerente de esta sucursal.
+
+    SupplierApplicationCreate:
+      type: object
+      required:
+        - manager
+        - supplier_type
+        - business
+        - branches
+      properties:
+        manager:
+          $ref: '#/components/schemas/RegisterClientRequest'
+        supplier_type:
+          $ref: '#/components/schemas/SupplierType'
+        rfc:
+          type: string
+          maxLength: 50
+          example: HEGJ850101AB1
+        business:
+          $ref: '#/components/schemas/BusinessInput'
+        branches:
+          type: array
+          minItems: 1
+          description: Un independiente manda una sola sucursal.
+          items:
+            $ref: '#/components/schemas/BranchInput'
+
+    DocumentValidation:
+      type: object
+      properties:
+        result:
+          type: string
+          enum:
+            - aprobado
+            - rechazado
+        comment:
+          type:
+            - string
+            - 'null'
+        reviewed_at:
+          type: string
+          format: date-time
+
+    SupplierDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '44'
+        type_document_id:
+          type: string
+        type_name:
+          type: string
+          example: Comprobante de Domicilio
+        file_key:
+          type: string
+        upload_date:
+          type: string
+          format: date
+        due_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        is_public:
+          type: boolean
+        validation:
+          description: Última revisión del administrador; `null` si aún no se revisa.
+          oneOf:
+            - $ref: '#/components/schemas/DocumentValidation'
+            - type: 'null'
+
+    SupplierApplicationSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '9'
+        state:
+          $ref: '#/components/schemas/SupplierApplicationState'
+        supplier_type:
+          $ref: '#/components/schemas/SupplierType'
+        application_date:
+          type: string
+          format: date
+        business_name:
+          type: string
+        manager_name:
+          type: string
+        email:
+          type: string
+          format: email
+        documents_pending:
+          type: integer
+          description: Documentos sin revisar.
+
+    SupplierApplication:
+      allOf:
+        - $ref: '#/components/schemas/SupplierApplicationSummary'
+        - type: object
+          properties:
+            comments:
+              type:
+                - string
+                - 'null'
+              description: Comentario del administrador al resolver.
+            rfc:
+              type:
+                - string
+                - 'null'
+            business:
+              $ref: '#/components/schemas/BusinessInput'
+            branches:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  address:
+                    $ref: '#/components/schemas/Address'
+                  schedules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScheduleInput'
+                  categories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BranchCategory'
+                  employees:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Employee'
+            documents:
+              type: array
+              items:
+                $ref: '#/components/schemas/SupplierDocument'
+
+    DocumentReview:
+      type: object
+      required:
+        - result
+      properties:
+        result:
+          type: string
+          enum:
+            - aprobado
+            - rechazado
+        comment:
+          type: string
+          maxLength: 1000
+          description: Obligatorio al rechazar.
+
+    ApplicationResolution:
+      type: object
+      required:
+        - state
+      properties:
+        state:
+          type: string
+          enum:
+            - aprobada
+            - rechazada
+            - documentacion_incompleta
+        comments:
+          type: string
+          maxLength: 2000
+          description: Obligatorio para `rechazada` y `documentacion_incompleta`.
+
+    StaffCreate:
+      type: object
+      required:
+        - email
+        - password
+        - name
+        - lastname_p
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 72
+        name:
+          type: string
+        lastname_p:
+          type: string
+        lastname_m:
+          type: string
+        role:
+          type: string
+          enum:
+            - administrador
+            - soporte
+
+    # ------------------------------------------------------------------------
+    # Sucursales, ficha y búsqueda
+    # ------------------------------------------------------------------------
+
+    PortfolioWorkInput:
+      type: object
+      required:
+        - title
+        - media
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          example: Cambio de tubería de cobre
+        description:
+          type: string
+        media:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required:
+              - file_key
+            properties:
+              file_key:
+                type: string
+              description:
+                type: string
+
+    PortfolioWork:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type:
+            - string
+            - 'null'
+        media:
+          type: array
+          items:
+            type: object
+            properties:
+              file_key:
+                type: string
+              url:
+                type: string
+                format: uri
+              description:
+                type:
+                  - string
+                  - 'null'
+
+    BranchPublicProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        business_name:
+          type: string
+        supplier_type:
+          $ref: '#/components/schemas/SupplierType'
+        description:
+          type:
+            - string
+            - 'null'
+        logo_url:
+          type:
+            - string
+            - 'null'
+          format: uri
+        phone:
+          type:
+            - string
+            - 'null'
+        rating_avg:
+          type: number
+          example: 4.7
+        reviews_count:
+          type: integer
+        total_jobs:
+          type: integer
+        accepting_request:
+          type: boolean
+        location:
+          type: object
+          description: Solo colonia, municipio y coordenadas; la dirección exacta no es pública.
+          properties:
+            colony:
+              type: string
+            municipality:
+              type: string
+            latitude:
+              type: number
+            longitude:
+              type: number
+        schedules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleInput'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchCategory'
+        portfolio:
+          type: array
+          items:
+            $ref: '#/components/schemas/PortfolioWork'
+        certificates:
+          type: array
+          description: Solo los documentos aprobados y marcados como públicos.
+          items:
+            type: object
+            properties:
+              type_name:
+                type: string
+              url:
+                type: string
+                format: uri
+        latest_reviews:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            properties:
+              rating:
+                type: integer
+                minimum: 1
+                maximum: 5
+              comment:
+                type:
+                  - string
+                  - 'null'
+              author_name:
+                type: string
+                description: Nombre e inicial del apellido.
+              created_at:
+                type: string
+                format: date-time
+
+    BranchSearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '5'
+        name:
+          type: string
+        business_name:
+          type: string
+        supplier_type:
+          $ref: '#/components/schemas/SupplierType'
+        logo_url:
+          type:
+            - string
+            - 'null'
+          format: uri
+        latitude:
+          type: number
+        longitude:
+          type: number
+        distance_km:
+          type: number
+          example: 1.8
+        rating_avg:
+          type: number
+          example: 4.6
+        reviews_count:
+          type: integer
+        base_price:
+          description: Precio base de la categoría buscada; `null` si no se filtró por categoría.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        open_now:
+          type: boolean
+
+    # ------------------------------------------------------------------------
+    # Notificaciones
+    # ------------------------------------------------------------------------
+
+    DeviceTokenInput:
+      type: object
+      required:
+        - token
+        - platform
+      properties:
+        token:
+          type: string
+          maxLength: 500
+        platform:
+          type: string
+          enum:
+            - android
+            - ios
+            - web
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: Evento que la originó.
+          example: solicitud_aceptada
+        title:
+          type: string
+          example: Tu solicitud fue aceptada
+        message:
+          type: string
+        entity_type:
+          type:
+            - string
+            - 'null'
+          description: Qué pantalla abrir al tocarla.
+          enum:
+            - service_request
+            - supplier_application
+            - report
+            - null
+        entity_id:
+          type:
+            - string
+            - 'null'
+        read_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+          description: Requiere migración; hoy la tabla `notifications` no tiene `created_at`.
+
+    # ------------------------------------------------------------------------
+    # Solicitudes de servicio
+    # ------------------------------------------------------------------------
+
+    ServiceRequestStatus:
+      type: string
+      description: |
+        `en_camino` y `llegado` requieren migración: hoy el enum de la base tiene `en_curso` en su
+        lugar. El contrato usa los pasos que muestra la app.
+      enum:
+        - pendiente
+        - aceptada
+        - agendada
+        - en_camino
+        - llegado
+        - completada
+        - cancelada
+        - expirada
+
+    TimeSlot:
+      type: object
+      properties:
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+
+    ServiceRequestCreate:
+      type: object
+      required:
+        - client_uuid
+        - branch_id
+        - category_id
+        - description
+      properties:
+        client_uuid:
+          type: string
+          format: uuid
+          description: Lo genera la app; evita duplicados al reintentar.
+        branch_id:
+          type: string
+        category_id:
+          type: string
+        description:
+          type: string
+          minLength: 5
+          maxLength: 2000
+        address_id:
+          type: string
+          description: Dirección guardada. Manda esta o `address`.
+        address:
+          $ref: '#/components/schemas/AddressInput'
+        attachment_keys:
+          type: array
+          maxItems: 5
+          description: '`file_key` de fotos subidas con `purpose` = `solicitud`.'
+          items:
+            type: string
+        scheduled_at:
+          type: string
+          format: date-time
+          description: Inicio de uno de los horarios libres. Sin este campo, la solicitud es inmediata.
+
+    EmergencyRequestCreate:
+      type: object
+      required:
+        - client_uuid
+        - category_id
+        - latitude
+        - longitude
+      properties:
+        client_uuid:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        description:
+          type: string
+          maxLength: 500
+
+    ServiceRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '120'
+        status:
+          $ref: '#/components/schemas/ServiceRequestStatus'
+        is_emergency:
+          type: boolean
+        description:
+          type: string
+        category:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        branch:
+          type:
+            - object
+            - 'null'
+          description: '`null` en una emergencia que nadie ha aceptado.'
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            phone:
+              type:
+                - string
+                - 'null'
+        technician:
+          type:
+            - object
+            - 'null'
+          properties:
+            employee_id:
+              type: string
+            name:
+              type: string
+            photo_url:
+              type:
+                - string
+                - 'null'
+              format: uri
+        client:
+          type: object
+          description: Visible para el proveedor.
+          properties:
+            name:
+              type: string
+            rating_avg:
+              type:
+                - number
+                - 'null'
+        address:
+          $ref: '#/components/schemas/Address'
+        base_price:
+          $ref: '#/components/schemas/Money'
+        agreed_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/UploadedFile'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Fin de los 5 minutos para responder.
+        scheduled_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        accepted_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        arrived_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        canceled_by:
+          type:
+            - string
+            - 'null'
+          enum:
+            - cliente
+            - proveedor
+            - sistema
+            - null
+        canceled_reason:
+          type:
+            - string
+            - 'null'
+
+    StatusChange:
+      type: object
+      required:
+        - status
+        - latitude
+        - longitude
+      properties:
+        status:
+          type: string
+          enum:
+            - en_camino
+            - llegado
+            - completada
+        latitude:
+          type: number
+        longitude:
+          type: number
+        closing_keys:
+          type: array
+          description: Fotos del cierre (`purpose` = `cierre_servicio`), solo al pasar a `completada`.
+          items:
+            type: string
+
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 1000
+        evidence_keys:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+
+    ServiceRequestEvent:
+      type: object
+      properties:
+        from_status:
+          oneOf:
+            - $ref: '#/components/schemas/ServiceRequestStatus'
+            - type: 'null'
+        to_status:
+          $ref: '#/components/schemas/ServiceRequestStatus'
+        changed_by:
+          type: object
+          properties:
+            id:
+              type: string
+            role:
+              $ref: '#/components/schemas/UserRole'
+        latitude:
+          type:
+            - number
+            - 'null'
+        longitude:
+          type:
+            - number
+            - 'null'
+        created_at:
+          type: string
+          format: date-time
+
   responses:
     InvalidInput:
       description: Faltan datos obligatorios o tienen un formato inválido.
@@ -1180,6 +4327,49 @@ components:
           example:
             error: INTERNAL_SERVER_ERROR
             message: Error interno del servidor.
+
+    ValidationError:
+      description: Los datos no cumplen el contrato.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          example:
+            error: VALIDATION_ERROR
+            message: Los datos enviados no son válidos.
+            details:
+              - field: phone
+                message: El teléfono debe tener 10 dígitos.
+
+    Unauthorized:
+      description: Falta el token, no es válido o la sesión terminó.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: INVALID_ACCESS_TOKEN
+            message: El token no es válido o ha expirado.
+
+    Forbidden:
+      description: La cuenta no tiene permiso para esta acción.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: INSUFFICIENT_PERMISSIONS
+            message: No tienes permisos para realizar esta acción.
+
+    NotFound:
+      description: El recurso no existe o no pertenece al usuario.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: NOT_FOUND
+            message: Recurso no encontrado.
 
   securitySchemes:
     bearerAuth:
