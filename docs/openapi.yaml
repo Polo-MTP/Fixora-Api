@@ -818,19 +818,21 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
-  # Planeados · Módulos 1 y 2 (cliente): recuperación de contraseña
+  # Recuperación de contraseña (API-9)
   # ==========================================================================
 
   /api/auth/forgot-password:
     post:
       tags:
         - Autenticación
-      summary: '[Planeado · API-9] Pedir código para restablecer la contraseña'
+      summary: Pedir código para restablecer la contraseña
       description: |
-        Envía al correo un código de 6 dígitos con vigencia corta. Responde igual exista o no la
-        cuenta, para no revelar qué correos están registrados.
-      x-estado: planeado
-      x-ticket: API-9
+        Envía al correo un código de 6 dígitos que vence en 10 minutos. Responde lo mismo exista o
+        no la cuenta, para no revelar qué correos están registrados. Si se vuelve a pedir antes de
+        1 minuto, responde igual pero no manda otro correo.
+
+        El código se guarda en Redis (con su hash, nunca en claro); si Redis no está disponible
+        responde 503.
       security: []
       requestBody:
         required: true
@@ -845,10 +847,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
+              example:
+                success: true
+                message: Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña.
         '400':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          description: Se pidió otro código antes de tiempo (`RESEND_COOLDOWN`).
+          description: Falta el correo (`INVALID_INPUT`) o no es válido (`INVALID_EMAIL`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: |
+            Redis no está disponible (`RECOVERY_SERVICE_UNAVAILABLE`), el correo no está configurado
+            (`RECOVERY_EMAIL_NOT_CONFIGURED`) o no se pudo enviar (`RECOVERY_EMAIL_FAILED`).
           content:
             application/json:
               schema:
@@ -858,10 +869,10 @@ paths:
     post:
       tags:
         - Autenticación
-      summary: '[Planeado · API-9] Restablecer la contraseña con el código'
-      description: Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
-      x-estado: planeado
-      x-ticket: API-9
+      summary: Restablecer la contraseña con el código
+      description: |
+        Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta. El código se usa una
+        sola vez; al 5.º intento fallido se invalida y hay que pedir otro.
       security: []
       requestBody:
         required: true
@@ -877,13 +888,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
         '400':
-          description: Datos inválidos o código incorrecto o vencido (`INVALID_RESET_CODE`).
+          description: |
+            Faltan datos (`INVALID_INPUT`), el código no es de 6 dígitos o es incorrecto
+            (`INVALID_RECOVERY_CODE`), ya venció o se usó (`RECOVERY_CODE_EXPIRED`), la contraseña
+            no cumple las reglas (`INVALID_PASSWORD`) o es igual a la anterior (`PASSWORD_REUSED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Hay otro restablecimiento en curso para ese correo (`RECOVERY_IN_PROGRESS`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Demasiados intentos con el código (`RESET_ATTEMPTS_EXCEEDED`).
+          description: Se superó el límite de intentos (`RECOVERY_ATTEMPTS_EXCEEDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Redis no está disponible (`RECOVERY_SERVICE_UNAVAILABLE`).
           content:
             application/json:
               schema:
