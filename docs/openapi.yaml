@@ -818,7 +818,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
-  # Planeados · Módulos 1 y 2 (cliente): recuperación de contraseña y Mi cuenta
+  # Planeados · Módulos 1 y 2 (cliente): recuperación de contraseña
   # ==========================================================================
 
   /api/auth/forgot-password:
@@ -889,18 +889,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # ==========================================================================
+  # Mi cuenta (API-10)
+  # ==========================================================================
+
   /api/me:
     get:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Consultar mi perfil'
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Consultar mi cuenta
+      description: Datos de la cuenta y datos personales del usuario que inició sesión.
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Perfil del usuario que inició sesión.
+          description: Cuenta del usuario.
           content:
             application/json:
               schema:
@@ -909,16 +912,20 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Profile'
+                        $ref: '#/components/schemas/MyAccount'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: La cuenta ya no existe (`ACCOUNT_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Editar mis datos personales'
-      description: El correo no se cambia por aquí.
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Editar mis datos personales
+      description: Solo cambia los campos que se mandan. El correo no se cambia por aquí.
       security:
         - bearerAuth: []
       requestBody:
@@ -927,6 +934,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ProfileUpdate'
+            example:
+              name: Ana
+              lastname_p: Pérez
+              phone: '5512345678'
       responses:
         '200':
           description: Datos actualizados.
@@ -938,9 +949,15 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Profile'
+                        $ref: '#/components/schemas/PersonalData'
         '400':
-          $ref: '#/components/responses/ValidationError'
+          description: |
+            Sin campos (`ACCOUNT_INVALID_INPUT`), teléfono que no tiene 10 dígitos
+            (`ACCOUNT_INVALID_PHONE`) u otro dato inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -948,10 +965,8 @@ paths:
     patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Cambiar mi contraseña'
-      description: Cierra las demás sesiones; la actual sigue abierta.
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Cambiar mi contraseña
+      description: Valida la contraseña actual y cierra las demás sesiones; la actual sigue abierta.
       security:
         - bearerAuth: []
       requestBody:
@@ -966,9 +981,23 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          password_changed:
+                            type: boolean
+                            example: true
+                          other_sessions_revoked:
+                            type: boolean
+                            example: true
         '400':
-          description: La contraseña nueva no cumple las reglas, o la actual es incorrecta (`INVALID_CURRENT_PASSWORD`).
+          description: |
+            La actual es incorrecta (`ACCOUNT_INCORRECT_CURRENT_PASSWORD`), la nueva es igual a la
+            actual (`ACCOUNT_SAME_PASSWORD`) o no cumple las reglas (`ACCOUNT_INVALID_NEW_PASSWORD`).
           content:
             application/json:
               schema:
@@ -980,10 +1009,8 @@ paths:
     get:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Listar mis direcciones'
+      summary: Listar mis direcciones
       description: Solo las activas; la principal va primero.
-      x-estado: planeado
-      x-ticket: API-10
       security:
         - bearerAuth: []
       responses:
@@ -999,16 +1026,14 @@ paths:
                       data:
                         type: array
                         items:
-                          $ref: '#/components/schemas/Address'
+                          $ref: '#/components/schemas/ClientAddress'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Guardar una dirección'
+      summary: Guardar una dirección
       description: Si es la primera o llega con `is_main` en `true`, queda como principal.
-      x-estado: planeado
-      x-ticket: API-10
       security:
         - bearerAuth: []
       requestBody:
@@ -1016,7 +1041,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddressInput'
+              $ref: '#/components/schemas/ClientAddressInput'
       responses:
         '201':
           description: Dirección guardada.
@@ -1028,21 +1053,55 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Address'
+                        $ref: '#/components/schemas/ClientAddress'
         '400':
-          $ref: '#/components/responses/ValidationError'
+          description: Falta un campo obligatorio (`ACCOUNT_INVALID_INPUT`) o la coordenada está fuera de rango (`ACCOUNT_INVALID_COORDINATE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
   /api/me/addresses/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Mi cuenta
+      summary: Ver una dirección
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: La dirección.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ClientAddress'
+        '400':
+          description: Id inválido (`ACCOUNT_INVALID_ADDRESS_ID`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Editar una dirección'
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Editar una dirección
       security:
         - bearerAuth: []
       requestBody:
@@ -1062,20 +1121,22 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Address'
+                        $ref: '#/components/schemas/ClientAddress'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     delete:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Borrar una dirección'
-      description: Baja lógica. Si era la principal, la más reciente pasa a ser principal.
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Borrar una dirección
+      description: Baja lógica. Si era la principal, la siguiente pasa a ser principal.
       security:
         - bearerAuth: []
       responses:
@@ -1084,21 +1145,36 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          address_id:
+                            type: string
+                          active:
+                            type: boolean
+                            example: false
+                          was_main:
+                            type: boolean
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/me/addresses/{id}/main:
     parameters:
       - $ref: '#/components/parameters/Id'
-    post:
+    patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Marcar una dirección como principal'
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Marcar una dirección como principal
       security:
         - bearerAuth: []
       responses:
@@ -1112,11 +1188,21 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Address'
+                        type: object
+                        properties:
+                          address_id:
+                            type: string
+                          is_main:
+                            type: boolean
+                            example: true
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
   # Archivos (API-8)
@@ -3544,6 +3630,155 @@ components:
               type: string
               example: '31'
         - $ref: '#/components/schemas/AddressInput'
+
+    MyAccount:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              example: '16'
+            email:
+              type: string
+              format: email
+            role:
+              $ref: '#/components/schemas/UserRole'
+            state:
+              $ref: '#/components/schemas/UserState'
+        personal_data:
+          description: '`null` si la cuenta todavía no tiene datos personales.'
+          oneOf:
+            - $ref: '#/components/schemas/PersonalData'
+            - type: 'null'
+
+    PersonalData:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Ana
+        lastname_p:
+          type: string
+          example: Pérez
+        lastname_m:
+          type:
+            - string
+            - 'null'
+        birth_date:
+          type:
+            - string
+            - 'null'
+          format: date
+          example: '2000-05-10'
+        phone:
+          type:
+            - string
+            - 'null'
+          example: '5512345678'
+
+    ClientAddressInput:
+      type: object
+      description: Igual que `AddressInput`, pero en las direcciones del cliente las coordenadas son opcionales.
+      required:
+        - street
+        - num_ext
+        - colony
+        - municipality
+        - state
+        - postal_code
+      properties:
+        alias:
+          type: string
+          maxLength: 100
+          example: Casa
+        reference:
+          type: string
+        street:
+          type: string
+          maxLength: 255
+        num_ext:
+          type: string
+          maxLength: 50
+        num_int:
+          type: string
+          maxLength: 50
+        colony:
+          type: string
+          maxLength: 150
+        municipality:
+          type: string
+          maxLength: 150
+        state:
+          type: string
+          maxLength: 150
+        postal_code:
+          type: string
+          maxLength: 20
+        country:
+          type: string
+          default: México
+        latitude:
+          type:
+            - number
+            - 'null'
+          minimum: -90
+          maximum: 90
+        longitude:
+          type:
+            - number
+            - 'null'
+          minimum: -180
+          maximum: 180
+        is_main:
+          type: boolean
+          default: false
+
+    ClientAddress:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '31'
+        alias:
+          type:
+            - string
+            - 'null'
+        is_main:
+          type: boolean
+        reference:
+          type:
+            - string
+            - 'null'
+        street:
+          type: string
+        num_ext:
+          type: string
+        num_int:
+          type:
+            - string
+            - 'null'
+        colony:
+          type: string
+        municipality:
+          type: string
+        state:
+          type: string
+        postal_code:
+          type: string
+        country:
+          type: string
+        latitude:
+          type:
+            - number
+            - 'null'
+          example: 19.4326
+        longitude:
+          type:
+            - number
+            - 'null'
+          example: -99.1332
 
     # ------------------------------------------------------------------------
     # Archivos
