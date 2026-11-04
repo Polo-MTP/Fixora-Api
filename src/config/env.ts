@@ -20,4 +20,11 @@ export const ENV = {
   EMAIL_VERIFICATION_MAX_ATTEMPTS: Number(process.env.EMAIL_VERIFICATION_MAX_ATTEMPTS) || 5,
 
   EMAIL_VERIFICATION_RESEND_SECONDS: Number(process.env.EMAIL_VERIFICATION_RESEND_SECONDS) || 60,
+
+  // Almacenamiento local (tipo Laravel Storage) y enlaces firmados.
+  // El secreto es propio de los enlaces: no se reutiliza el de JWT ni hay un valor fijo en código
+  // (ver resolveSignSecret en storage.service.ts).
+  STORAGE_DIR: process.env.STORAGE_DIR ?? 'storage',
+  STORAGE_SIGNED_URL_SECRET: process.env.STORAGE_SIGNED_URL_SECRET ?? '',
+  APP_URL: process.env.APP_URL ?? `http://localhost:${Number(process.env.PORT) || 3001}`,
 } as const;

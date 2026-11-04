@@ -16,6 +16,10 @@ import testAuthRoutes from './routes/auth.test.routes.ts';
 import categoriesRoutes from './routes/categories.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
+import { setupDomainEventObservers } from './events/index.ts';
+
+// Inicializar observadores del patrón Observer (Módulos 1 y 5)
+setupDomainEventObservers();
 
 const app = express();
 
