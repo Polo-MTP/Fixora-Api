@@ -15,6 +15,7 @@ import testAuthRoutes from './routes/auth.test.routes.ts';
 
 import categoriesRoutes from './routes/categories.routes.ts';
 import accountRoutes from './routes/account.routes.ts';
+import passwordRecoveryRoutes from './routes/password-recovery.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 
@@ -53,6 +54,9 @@ app.use('/api', apiRouter);
 
 // Autenticación
 app.use('/api/auth', authRoutes);
+
+//Recuperacion de contrasena
+app.use('/api/auth', passwordRecoveryRoutes);
 
 //Categorias
 app.use('/api/categories', categoriesRoutes);

@@ -50,7 +50,9 @@ tags:
   - name: Registro
     description: Registro de clientes y verificación de correo electrónico.
   - name: Autenticación
-    description: Inicio de sesión, sesiones y recuperación de contraseña.
+    description: Inicio de sesión, sesiones y administración de tokens.
+  - name: Recuperación de contraseña
+    description: Solicitud de recuperación y restablecimiento de contraseña mediante código temporal.
   - name: Mi cuenta
     description: Administración de datos personales y direcciones del usuario autenticado.
   - name: Archivos
@@ -499,44 +501,36 @@ paths:
   /api/auth/forgot-password:
     post:
       tags:
-        - Autenticación
-      summary: '[Planeado · API-9] Pedir código para restablecer la contraseña'
-      description: |
-        Envía al correo un código de 6 dígitos con vigencia corta. Responde igual exista o no la
-        cuenta, para no revelar qué correos están registrados.
-      x-estado: planeado
-      x-ticket: API-9
+        - Recuperación de contraseña
+      summary: Solicitar recuperación de contraseña
+      description: Envía un código temporal al correo si la cuenta existe. La respuesta no revela si el correo está registrado.
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailRequest'
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+            example:
+              email: cliente@fixora.test
       responses:
         '200':
-          description: Si la cuenta existe, se envió el código.
+          description: Solicitud procesada.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
+                $ref: '#/components/schemas/RecoveryMessageResponse'
         '400':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          description: Se pidió otro código antes de tiempo (`RESEND_COOLDOWN`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          description: Correo inválido.
+        '503':
+          description: Servicio de recuperación o correo no disponible.
 
   /api/auth/reset-password:
     post:
       tags:
-        - Autenticación
-      summary: '[Planeado · API-9] Restablecer la contraseña con el código'
-      description: Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
-      x-estado: planeado
-      x-ticket: API-9
+        - Recuperación de contraseña
+      summary: Restablecer contraseña
+      description: Valida el código de recuperación y cambia la contraseña. Las sesiones anteriores son revocadas.
       security: []
       requestBody:
         required: true
@@ -544,25 +538,21 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ResetPasswordRequest'
+            example:
+              email: cliente@fixora.test
+              code: '482915'
+              newPassword: NuevaContrasena123
       responses:
         '200':
-          description: Contraseña actualizada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
+          description: Contraseña restablecida correctamente.
         '400':
-          description: Datos inválidos o código incorrecto o vencido (`INVALID_RESET_CODE`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          description: Datos inválidos, código incorrecto, expirado o contraseña reutilizada.
+        '409':
+          description: Existe otra solicitud de recuperación en proceso.
         '429':
-          description: Demasiados intentos con el código (`RESET_ATTEMPTS_EXCEEDED`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          description: Se superó el límite de intentos.
+        '503':
+          description: Redis no está disponible.
 
   /api/dev/users:
     post:
@@ -792,7 +782,7 @@ paths:
           description: La categoría ya está desactivada.
 
   # ==========================================================================
-  # Módulo: Mi cuenta (Adaptado según res.yaml)
+  # Módulo: Mi cuenta
   # ==========================================================================
 
   /api/account/me:
@@ -2765,6 +2755,48 @@ components:
           type: string
           example: Sesión cerrada correctamente.
 
+    ForgotPasswordRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - email
+        - code
+        - newPassword
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+          minLength: 6
+          maxLength: 6
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+
+    RecoveryMessageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña.
+
     CreateTestUserRequest:
       type: object
       additionalProperties: false
@@ -3104,37 +3136,8 @@ components:
         - inactivo
 
     # ------------------------------------------------------------------------
-    # Mi cuenta (Schemas adaptados según res.yaml)
+    # Mi cuenta
     # ------------------------------------------------------------------------
-
-    EmailRequest:
-      type: object
-      required:
-        - email
-      properties:
-        email:
-          type: string
-          format: email
-          example: ana@correo.com
-
-    ResetPasswordRequest:
-      type: object
-      required:
-        - email
-        - code
-        - new_password
-      properties:
-        email:
-          type: string
-          format: email
-        code:
-          type: string
-          pattern: '^\d{6}$'
-          example: '482913'
-        new_password:
-          type: string
-          minLength: 8
-          maxLength: 72
 
     PersonalData:
       type: object
