@@ -21,7 +21,10 @@ export class UserController {
       const idStr = Array.isArray(id) ? id[0] : id;
 
       if (!idStr || !/^\d+$/.test(idStr)) {
-        throw new BadRequestError('El ID proporcionado debe ser un número entero válido');
+        throw new BadRequestError(
+          'El ID proporcionado debe ser un número entero válido',
+          'USER_INVALID_ID',
+        );
       }
 
       const user = await userService.getUserById(BigInt(idStr));
