@@ -129,10 +129,10 @@ export async function authenticateToken(
       return;
     }
 
-    // El estado debe corresponder al enum de la base de datos.
+    // El estado debe corresponder al enum de la base de datos (activo / activa).
     const accountState = String(session.userState).trim().toUpperCase();
 
-    if (accountState !== 'ACTIVA' || !session.roleActive) {
+    if ((accountState !== 'ACTIVA' && accountState !== 'ACTIVO') || !session.roleActive) {
       res.status(403).json({
         error: 'ACCOUNT_NOT_ACTIVE',
         message: 'La cuenta no está habilitada.',

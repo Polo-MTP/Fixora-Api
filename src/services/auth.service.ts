@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { createHash, randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { and, eq, gt, lte } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import type { SignOptions } from 'jsonwebtoken';
 
 import { db } from '../config/database.ts';
