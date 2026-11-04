@@ -1,12 +1,12 @@
-
 import 'dotenv/config';
 
 import {
-    createHash,
-    createHmac,
-    randomInt,
-    randomUUID,
-    timingSafeEqual
+  createHash,
+  createHmac,
+  randomBytes,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
 } from 'node:crypto';
 
 import bcrypt from 'bcryptjs';
@@ -17,54 +17,62 @@ import { db } from '../config/database.ts';
 import { redis } from '../config/redis.ts';
 import { ENV } from '../config/env.ts';
 
-import {
-    users,
-    sessions
-} from '../database/schema/tables.ts';
+import { users, sessions } from '../database/schema/tables.ts';
 
-import {
-    sendPasswordRecoveryCodeEmail
-} from './email.service.ts';
+import { sendPasswordRecoveryCodeEmail } from './email.service.ts';
 
 // ============================================================
 // CONFIGURACIÓN
 // ============================================================
 
-const RECOVERY_SECRET = process.env.PASSWORD_RECOVERY_SECRET;
+const MIN_SECRET_LENGTH = 32;
 
-const CODE_TTL_SECONDS = 600;       // 10 minutos
-const RATE_LIMIT_SECONDS = 60;      // 1 minuto
+/**
+ * Secreto para firmar los códigos. En producción es obligatorio; en desarrollo, si falta, se usa
+ * uno aleatorio por proceso (los códigos pendientes dejan de servir al reiniciar) para que la API
+ * arranque aunque alguien no lo tenga en su .env.
+ */
+function resolveRecoverySecret(): string {
+  const secret = process.env.PASSWORD_RECOVERY_SECRET ?? '';
+  if (secret.length >= MIN_SECRET_LENGTH) return secret;
+
+  if (ENV.NODE_ENV === 'production') {
+    throw new Error(
+      `PASSWORD_RECOVERY_SECRET debe existir y tener al menos ${MIN_SECRET_LENGTH} caracteres.`,
+    );
+  }
+
+  console.warn(
+    '[Recuperación] Falta PASSWORD_RECOVERY_SECRET; se usa uno temporal. Los códigos enviados dejarán de servir al reiniciar.',
+  );
+  return randomBytes(32).toString('hex');
+}
+
+const RECOVERY_SECRET = resolveRecoverySecret();
+
+const CODE_TTL_SECONDS = 600; // 10 minutos
+const RATE_LIMIT_SECONDS = 60; // 1 minuto
 const MAX_CODE_ATTEMPTS = 5;
 const PASSWORD_SALT_ROUNDS = 12;
 
 const GENERIC_RECOVERY_MESSAGE =
-    'Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña.';
-
-if (!RECOVERY_SECRET || RECOVERY_SECRET.length < 32) {
-    throw new Error(
-        'PASSWORD_RECOVERY_SECRET debe existir y tener al menos 32 caracteres.'
-    );
-}
+  'Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña.';
 
 // ============================================================
 // ERRORES
 // ============================================================
 
 export class PasswordRecoveryError extends Error {
-    public statusCode: number;
-    public code: string;
+  public statusCode: number;
+  public code: string;
 
-    constructor(
-        statusCode: number,
-        code: string,
-        message: string
-    ) {
-        super(message);
+  constructor(statusCode: number, code: string, message: string) {
+    super(message);
 
-        this.name = 'PasswordRecoveryError';
-        this.statusCode = statusCode;
-        this.code = code;
-    }
+    this.name = 'PasswordRecoveryError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
 }
 
 // ============================================================
@@ -72,8 +80,8 @@ export class PasswordRecoveryError extends Error {
 // ============================================================
 
 interface RecoveryRecord {
-    userId: string;
-    codeHash: string;
+  userId: string;
+  codeHash: string;
 }
 
 // ============================================================
@@ -81,69 +89,53 @@ interface RecoveryRecord {
 // ============================================================
 
 function normalizeEmail(value: unknown): string {
-    if (
-        typeof value !== 'string' ||
-        !value.trim()
-    ) {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_EMAIL',
-            'Debes proporcionar un correo electrónico válido.'
-        );
-    }
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new PasswordRecoveryError(
+      400,
+      'INVALID_EMAIL',
+      'Debes proporcionar un correo electrónico válido.',
+    );
+  }
 
-    const email = value.trim().toLowerCase();
+  const email = value.trim().toLowerCase();
 
-    if (
-        email.length > 255 ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-    ) {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_EMAIL',
-            'El correo electrónico no es válido.'
-        );
-    }
+  if (email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new PasswordRecoveryError(400, 'INVALID_EMAIL', 'El correo electrónico no es válido.');
+  }
 
-    return email;
+  return email;
 }
 
 function validateRecoveryCode(value: unknown): string {
-    if (
-        typeof value !== 'string' ||
-        !/^\d{6}$/.test(value)
-    ) {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_RECOVERY_CODE',
-            'El código debe contener exactamente seis dígitos.'
-        );
-    }
+  if (typeof value !== 'string' || !/^\d{6}$/.test(value)) {
+    throw new PasswordRecoveryError(
+      400,
+      'INVALID_RECOVERY_CODE',
+      'El código debe contener exactamente seis dígitos.',
+    );
+  }
 
-    return value;
+  return value;
 }
 
 function validateNewPassword(value: unknown): string {
-    if (typeof value !== 'string') {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_PASSWORD',
-            'Debes proporcionar una nueva contraseña.'
-        );
-    }
+  if (typeof value !== 'string') {
+    throw new PasswordRecoveryError(
+      400,
+      'INVALID_PASSWORD',
+      'Debes proporcionar una nueva contraseña.',
+    );
+  }
 
-    if (
-        value.length < 8 ||
-        Buffer.byteLength(value, 'utf8') > 72
-    ) {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_PASSWORD',
-            'La contraseña debe tener al menos 8 caracteres y no superar 72 bytes.'
-        );
-    }
+  if (value.length < 8 || Buffer.byteLength(value, 'utf8') > 72) {
+    throw new PasswordRecoveryError(
+      400,
+      'INVALID_PASSWORD',
+      'La contraseña debe tener al menos 8 caracteres y no superar 72 bytes.',
+    );
+  }
 
-    return value;
+  return value;
 }
 
 // ============================================================
@@ -151,13 +143,13 @@ function validateNewPassword(value: unknown): string {
 // ============================================================
 
 function ensureRedisAvailable(): void {
-    if (!redis.isReady) {
-        throw new PasswordRecoveryError(
-            503,
-            'RECOVERY_SERVICE_UNAVAILABLE',
-            'El servicio de recuperación no está disponible temporalmente.'
-        );
-    }
+  if (!redis.isReady) {
+    throw new PasswordRecoveryError(
+      503,
+      'RECOVERY_SERVICE_UNAVAILABLE',
+      'El servicio de recuperación no está disponible temporalmente.',
+    );
+  }
 }
 
 // ============================================================
@@ -165,20 +157,18 @@ function ensureRedisAvailable(): void {
 // ============================================================
 
 function getEmailHash(email: string): string {
-    return createHash('sha256')
-        .update(email)
-        .digest('hex');
+  return createHash('sha256').update(email).digest('hex');
 }
 
 function getRedisKeys(email: string) {
-    const emailHash = getEmailHash(email);
+  const emailHash = getEmailHash(email);
 
-    return {
-        recovery: `fixora:password-recovery:${emailHash}`,
-        attempts: `fixora:password-recovery:attempts:${emailHash}`,
-        rateLimit: `fixora:password-recovery:rate:${emailHash}`,
-        lock: `fixora:password-recovery:lock:${emailHash}`
-    };
+  return {
+    recovery: `fixora:password-recovery:${emailHash}`,
+    attempts: `fixora:password-recovery:attempts:${emailHash}`,
+    rateLimit: `fixora:password-recovery:rate:${emailHash}`,
+    lock: `fixora:password-recovery:lock:${emailHash}`,
+  };
 }
 
 // ============================================================
@@ -186,114 +176,89 @@ function getRedisKeys(email: string) {
 // ============================================================
 
 function generateRecoveryCode(): string {
-    return randomInt(0, 1_000_000)
-        .toString()
-        .padStart(6, '0');
+  return randomInt(0, 1_000_000).toString().padStart(6, '0');
 }
 
-function generateCodeHash(
-    email: string,
-    userId: string,
-    code: string
-): string {
-    return createHmac('sha256', RECOVERY_SECRET!)
-        .update(`${email}:${userId}:${code}`)
-        .digest('hex');
+function generateCodeHash(email: string, userId: string, code: string): string {
+  return createHmac('sha256', RECOVERY_SECRET).update(`${email}:${userId}:${code}`).digest('hex');
 }
 
-function compareCodeHashes(
-    receivedHash: string,
-    storedHash: string
-): boolean {
-    const received = Buffer.from(receivedHash, 'hex');
-    const stored = Buffer.from(storedHash, 'hex');
+function compareCodeHashes(receivedHash: string, storedHash: string): boolean {
+  const received = Buffer.from(receivedHash, 'hex');
+  const stored = Buffer.from(storedHash, 'hex');
 
-    if (
-        received.length !== 32 ||
-        stored.length !== 32
-    ) {
-        return false;
-    }
+  if (received.length !== 32 || stored.length !== 32) {
+    return false;
+  }
 
-    return timingSafeEqual(received, stored);
+  return timingSafeEqual(received, stored);
 }
 
 // ============================================================
 // VALIDAR REGISTRO ALMACENADO
 // ============================================================
 
-function parseRecoveryRecord(
-    value: string
-): RecoveryRecord {
-    let parsed: unknown;
+function parseRecoveryRecord(value: string): RecoveryRecord {
+  let parsed: unknown;
 
-    try {
-        parsed = JSON.parse(value);
-    } catch {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_RECOVERY_CODE',
-            'El registro de recuperación no es válido. Solicita un código nuevo.'
-        );
-    }
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new PasswordRecoveryError(
+      400,
+      'INVALID_RECOVERY_CODE',
+      'El registro de recuperación no es válido. Solicita un código nuevo.',
+    );
+  }
 
-    if (
-        !parsed ||
-        typeof parsed !== 'object' ||
-        !('userId' in parsed) ||
-        !('codeHash' in parsed)
-    ) {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_RECOVERY_CODE',
-            'El registro de recuperación no es válido. Solicita un código nuevo.'
-        );
-    }
+  if (!parsed || typeof parsed !== 'object' || !('userId' in parsed) || !('codeHash' in parsed)) {
+    throw new PasswordRecoveryError(
+      400,
+      'INVALID_RECOVERY_CODE',
+      'El registro de recuperación no es válido. Solicita un código nuevo.',
+    );
+  }
 
-    const record = parsed as RecoveryRecord;
+  const record = parsed as RecoveryRecord;
 
-    if (
-        typeof record.userId !== 'string' ||
-        !/^[1-9]\d*$/.test(record.userId) ||
-        typeof record.codeHash !== 'string' ||
-        !/^[a-f0-9]{64}$/i.test(record.codeHash)
-    ) {
-        throw new PasswordRecoveryError(
-            400,
-            'INVALID_RECOVERY_CODE',
-            'El registro de recuperación no es válido. Solicita un código nuevo.'
-        );
-    }
+  if (
+    typeof record.userId !== 'string' ||
+    !/^[1-9]\d*$/.test(record.userId) ||
+    typeof record.codeHash !== 'string' ||
+    !/^[a-f0-9]{64}$/i.test(record.codeHash)
+  ) {
+    throw new PasswordRecoveryError(
+      400,
+      'INVALID_RECOVERY_CODE',
+      'El registro de recuperación no es válido. Solicita un código nuevo.',
+    );
+  }
 
-    return record;
+  return record;
 }
 
 // ============================================================
 // LIBERAR BLOQUEO REDIS DE FORMA SEGURA
 // ============================================================
 
-async function releaseRecoveryLock(
-    lockKey: string,
-    lockToken: string
-): Promise<void> {
-    try {
-        await redis.eval(
-            `
+async function releaseRecoveryLock(lockKey: string, lockToken: string): Promise<void> {
+  try {
+    await redis.eval(
+      `
             if redis.call('GET', KEYS[1]) == ARGV[1] then
                 return redis.call('DEL', KEYS[1])
             end
 
             return 0
             `,
-            {
-                keys: [lockKey],
-                arguments: [lockToken]
-            }
-        );
-    } catch (error) {
-        // No propagar errores al liberar el bloqueo.
-
-    }
+      {
+        keys: [lockKey],
+        arguments: [lockToken],
+      },
+    );
+  } catch {
+    // No propagar errores al liberar el bloqueo.
+  }
 }
 
 // ============================================================
@@ -301,139 +266,111 @@ async function releaseRecoveryLock(
 // POST /api/auth/forgot-password
 // ============================================================
 
-export async function requestPasswordRecovery(
-    emailInput: string
-) {
-    const email = normalizeEmail(emailInput);
+export async function requestPasswordRecovery(emailInput: string) {
+  const email = normalizeEmail(emailInput);
 
-    ensureRedisAvailable();
+  ensureRedisAvailable();
 
-    const keys = getRedisKeys(email);
+  const keys = getRedisKeys(email);
 
-    // Limitar solicitudes repetidas.
-    // La misma respuesta se utiliza para correos registrados
-    // y no registrados.
+  // Limitar solicitudes repetidas.
+  // La misma respuesta se utiliza para correos registrados
+  // y no registrados.
 
-    const rateLimit = await redis.set(
-        keys.rateLimit,
-        '1',
-        {
-            EX: RATE_LIMIT_SECONDS,
-            NX: true
-        }
-    );
+  const rateLimit = await redis.set(keys.rateLimit, '1', {
+    EX: RATE_LIMIT_SECONDS,
+    NX: true,
+  });
 
-    if (rateLimit !== 'OK') {
-        return {
-            message: GENERIC_RECOVERY_MESSAGE
-        };
-    }
-
-    // Buscar usuario en PostgreSQL.
-
-    const [user] = await db
-        .select({
-            id: users.UniqueID,
-            email: users.email
-        })
-        .from(users)
-        .where(eq(users.email, email))
-        .limit(1);
-
-    if (!user) {
-        return {
-            message: GENERIC_RECOVERY_MESSAGE
-        };
-    }
-
-    // Generar código.
-
-    const code = generateRecoveryCode();
-
-    const userId = user.id.toString();
-
-    const codeHash = generateCodeHash(
-        email,
-        userId,
-        code
-    );
-
-    const recoveryRecord: RecoveryRecord = {
-        userId,
-        codeHash
-    };
-
-    // Guardar código protegido en Redis.
-    // Nunca se almacena el código original.
-
-    const saved = await redis.set(
-        keys.recovery,
-        JSON.stringify(recoveryRecord),
-        {
-            EX: CODE_TTL_SECONDS
-        }
-    );
-
-    if (saved !== 'OK') {
-        await redis.del(keys.rateLimit);
-
-        throw new PasswordRecoveryError(
-            503,
-            'RECOVERY_STORAGE_FAILED',
-            'No fue posible guardar el código de recuperación.'
-        );
-    }
-
-    // Reiniciar los intentos del nuevo código.
-
-    await redis.del(keys.attempts);
-
-
-    // Comprobar configuración del servicio de correo.
-
-    if (
-        !ENV.RESEND_API_KEY ||
-        !ENV.RESEND_FROM_EMAIL
-    ) {
-        await redis.del([
-            keys.recovery,
-            keys.attempts,
-            keys.rateLimit
-        ]);
-
-        throw new PasswordRecoveryError(
-            503,
-            'RECOVERY_EMAIL_NOT_CONFIGURED',
-            'El servicio de correo de recuperación no está configurado.'
-        );
-    }
-
-    // Enviar correo utilizando Resend.
-
-    try {
-        await sendPasswordRecoveryCodeEmail(
-            user.email,
-            code,
-            CODE_TTL_SECONDS / 60
-        );
-    } catch (error) {
-        await redis.del([
-            keys.recovery,
-            keys.attempts,
-            keys.rateLimit
-        ]);
-
-
-        throw new PasswordRecoveryError(
-            503,
-            'RECOVERY_EMAIL_FAILED',
-            'No fue posible enviar el correo de recuperación. Intenta más tarde.'
-        );
-    }
-
+  if (rateLimit !== 'OK') {
     return {
-        message: GENERIC_RECOVERY_MESSAGE
+      message: GENERIC_RECOVERY_MESSAGE,
     };
+  }
+
+  // Buscar usuario en PostgreSQL.
+
+  const [user] = await db
+    .select({
+      id: users.UniqueID,
+      email: users.email,
+    })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  if (!user) {
+    return {
+      message: GENERIC_RECOVERY_MESSAGE,
+    };
+  }
+
+  // Generar código.
+
+  const code = generateRecoveryCode();
+
+  const userId = user.id.toString();
+
+  const codeHash = generateCodeHash(email, userId, code);
+
+  const recoveryRecord: RecoveryRecord = {
+    userId,
+    codeHash,
+  };
+
+  // Guardar código protegido en Redis.
+  // Nunca se almacena el código original.
+
+  const saved = await redis.set(keys.recovery, JSON.stringify(recoveryRecord), {
+    EX: CODE_TTL_SECONDS,
+  });
+
+  if (saved !== 'OK') {
+    await redis.del(keys.rateLimit);
+
+    throw new PasswordRecoveryError(
+      503,
+      'RECOVERY_STORAGE_FAILED',
+      'No fue posible guardar el código de recuperación.',
+    );
+  }
+
+  // Reiniciar los intentos del nuevo código.
+
+  await redis.del(keys.attempts);
+
+  // Comprobar configuración del servicio de correo.
+
+  if (!ENV.RESEND_API_KEY || !ENV.RESEND_FROM_EMAIL) {
+    await redis.del([keys.recovery, keys.attempts, keys.rateLimit]);
+
+    throw new PasswordRecoveryError(
+      503,
+      'RECOVERY_EMAIL_NOT_CONFIGURED',
+      'El servicio de correo de recuperación no está configurado.',
+    );
+  }
+
+  // Enviar correo utilizando Resend.
+
+  try {
+    await sendPasswordRecoveryCodeEmail(user.email, code, CODE_TTL_SECONDS / 60);
+  } catch (error) {
+    // Sin esto no quedaría rastro de por qué falló Resend (llave, remitente, límite).
+    console.error('[Recuperación] No se pudo enviar el correo:', error);
+
+    await redis.del([keys.recovery, keys.attempts, keys.rateLimit]);
+
+    throw new PasswordRecoveryError(
+      503,
+      'RECOVERY_EMAIL_FAILED',
+      'No fue posible enviar el correo de recuperación. Intenta más tarde.',
+    );
+  }
+
+  return {
+    message: GENERIC_RECOVERY_MESSAGE,
+  };
 }
 
 // ============================================================
@@ -442,252 +379,195 @@ export async function requestPasswordRecovery(
 // ============================================================
 
 export async function resetPassword(
-    emailInput: string,
-    codeInput: string,
-    newPasswordInput: string
+  emailInput: string,
+  codeInput: string,
+  newPasswordInput: string,
 ) {
-    const email = normalizeEmail(emailInput);
+  const email = normalizeEmail(emailInput);
 
-    const code = validateRecoveryCode(codeInput);
+  const code = validateRecoveryCode(codeInput);
 
-    const newPassword = validateNewPassword(
-        newPasswordInput
+  const newPassword = validateNewPassword(newPasswordInput);
+
+  ensureRedisAvailable();
+
+  const keys = getRedisKeys(email);
+
+  // Identificador único del bloqueo.
+
+  const lockToken = randomUUID();
+
+  // Evitar solicitudes simultáneas para el mismo correo.
+
+  const lockAcquired = await redis.set(keys.lock, lockToken, {
+    NX: true,
+    EX: 30,
+  });
+
+  if (lockAcquired !== 'OK') {
+    throw new PasswordRecoveryError(
+      409,
+      'RECOVERY_IN_PROGRESS',
+      'Ya existe una solicitud de recuperación en proceso.',
     );
+  }
 
-    ensureRedisAvailable();
+  try {
+    // ----------------------------------------------------
+    // COMPROBAR CONEXIÓN, LLAVE Y EXPIRACIÓN
+    // ----------------------------------------------------
 
-    const keys = getRedisKeys(email);
+    const storedRecord = await redis.get(keys.recovery);
 
-    // Identificador único del bloqueo.
-
-    const lockToken = randomUUID();
-
-    // Evitar solicitudes simultáneas para el mismo correo.
-
-    const lockAcquired = await redis.set(
-        keys.lock,
-        lockToken,
-        {
-            NX: true,
-            EX: 30
-        }
-    );
-
-    if (lockAcquired !== 'OK') {
-        throw new PasswordRecoveryError(
-            409,
-            'RECOVERY_IN_PROGRESS',
-            'Ya existe una solicitud de recuperación en proceso.'
-        );
+    if (!storedRecord) {
+      throw new PasswordRecoveryError(
+        400,
+        'RECOVERY_CODE_EXPIRED',
+        'El código no existe o ha expirado. Solicita uno nuevo.',
+      );
     }
+
+    // ----------------------------------------------------
+    // INTERPRETAR REGISTRO
+    // ----------------------------------------------------
+
+    let recoveryRecord: RecoveryRecord;
 
     try {
-        // ----------------------------------------------------
-        // COMPROBAR CONEXIÓN, LLAVE Y EXPIRACIÓN
-        // ----------------------------------------------------
+      recoveryRecord = parseRecoveryRecord(storedRecord);
+    } catch (error) {
+      await redis.del([keys.recovery, keys.attempts]);
 
-        const storedRecord = await redis.get(keys.recovery);
-
-        if (!storedRecord) {
-            throw new PasswordRecoveryError(
-                400,
-                'RECOVERY_CODE_EXPIRED',
-                'El código no existe o ha expirado. Solicita uno nuevo.'
-            );
-        }
-
-        // ----------------------------------------------------
-        // INTERPRETAR REGISTRO
-        // ----------------------------------------------------
-
-        let recoveryRecord: RecoveryRecord;
-
-        try {
-            recoveryRecord = parseRecoveryRecord(
-                storedRecord
-            );
-        } catch (error) {
-            await redis.del([
-                keys.recovery,
-                keys.attempts
-            ]);
-
-            throw error;
-        }
-
-        // ----------------------------------------------------
-        // VERIFICAR INTENTOS
-        // ----------------------------------------------------
-
-        const attempts = await redis.incr(keys.attempts);
-
-        if (attempts === 1) {
-            await redis.expire(
-                keys.attempts,
-                CODE_TTL_SECONDS
-            );
-        }
-
-        if (attempts > MAX_CODE_ATTEMPTS) {
-            await redis.del([
-                keys.recovery,
-                keys.attempts
-            ]);
-
-            throw new PasswordRecoveryError(
-                429,
-                'RECOVERY_ATTEMPTS_EXCEEDED',
-                'Se superó el límite de intentos. Solicita un código nuevo.'
-            );
-        }
-
-        // ----------------------------------------------------
-        // VERIFICAR CÓDIGO
-        // ----------------------------------------------------
-
-        const receivedHash = generateCodeHash(
-            email,
-            recoveryRecord.userId,
-            code
-        );
-
-        const validCode = compareCodeHashes(
-            receivedHash,
-            recoveryRecord.codeHash
-        );
-
-        if (!validCode) {
-            if (attempts >= MAX_CODE_ATTEMPTS) {
-                await redis.del([
-                    keys.recovery,
-                    keys.attempts
-                ]);
-
-                throw new PasswordRecoveryError(
-                    429,
-                    'RECOVERY_ATTEMPTS_EXCEEDED',
-                    'Se superó el límite de intentos. Solicita un código nuevo.'
-                );
-            }
-
-            throw new PasswordRecoveryError(
-                400,
-                'INVALID_RECOVERY_CODE',
-                'El código de recuperación es incorrecto.'
-            );
-        }
-
-        // ----------------------------------------------------
-        // CONSULTAR CUENTA
-        // ----------------------------------------------------
-
-        const userId = BigInt(
-            recoveryRecord.userId
-        );
-
-        const [user] = await db
-            .select({
-                id: users.UniqueID,
-                passwordHash: users.password_hash
-            })
-            .from(users)
-            .where(
-                and(
-                    eq(users.UniqueID, userId),
-                    eq(users.email, email)
-                )
-            )
-            .limit(1);
-
-        if (!user) {
-            await redis.del([
-                keys.recovery,
-                keys.attempts
-            ]);
-
-            throw new PasswordRecoveryError(
-                400,
-                'INVALID_RECOVERY_CODE',
-                'El código de recuperación ya no es válido.'
-            );
-        }
-
-        // ----------------------------------------------------
-        // EVITAR REUTILIZAR CONTRASEÑA
-        // ----------------------------------------------------
-
-        const samePassword = await bcrypt.compare(
-            newPassword,
-            user.passwordHash
-        );
-
-        if (samePassword) {
-            throw new PasswordRecoveryError(
-                400,
-                'PASSWORD_REUSED',
-                'La nueva contraseña debe ser diferente a la anterior.'
-            );
-        }
-
-        // ----------------------------------------------------
-        // GENERAR NUEVO HASH
-        // ----------------------------------------------------
-
-        const newPasswordHash = await bcrypt.hash(
-            newPassword,
-            PASSWORD_SALT_ROUNDS
-        );
-
-        // ----------------------------------------------------
-        // CONSUMIR CÓDIGO
-        // ----------------------------------------------------
-
-        // Se consume antes de modificar PostgreSQL para impedir
-        // su reutilización. Si falla la transacción, el usuario
-        // deberá solicitar un código nuevo.
-
-        await redis.del([
-            keys.recovery,
-            keys.attempts
-        ]);
-
-        // ----------------------------------------------------
-        // ACTUALIZAR CONTRASEÑA Y REVOCAR SESIONES
-        // ----------------------------------------------------
-
-        await db.transaction(async (tx) => {
-            await tx
-                .update(users)
-                .set({
-                    password_hash: newPasswordHash,
-                    failed_attempts: 0,
-                    locked_until: null
-                })
-                .where(
-                    eq(users.UniqueID, userId)
-                );
-
-            await tx
-                .update(sessions)
-                .set({
-                    revoked: true
-                })
-                .where(
-                    and(
-                        eq(sessions.user_id, userId),
-                        eq(sessions.revoked, false)
-                    )
-                );
-        });
-
-        return {
-            message: 'Contraseña restablecida correctamente.'
-        };
-
-    } finally {
-        await releaseRecoveryLock(
-            keys.lock,
-            lockToken
-        );
+      throw error;
     }
+
+    // ----------------------------------------------------
+    // VERIFICAR INTENTOS
+    // ----------------------------------------------------
+
+    const attempts = await redis.incr(keys.attempts);
+
+    if (attempts === 1) {
+      await redis.expire(keys.attempts, CODE_TTL_SECONDS);
+    }
+
+    if (attempts > MAX_CODE_ATTEMPTS) {
+      await redis.del([keys.recovery, keys.attempts]);
+
+      throw new PasswordRecoveryError(
+        429,
+        'RECOVERY_ATTEMPTS_EXCEEDED',
+        'Se superó el límite de intentos. Solicita un código nuevo.',
+      );
+    }
+
+    // ----------------------------------------------------
+    // VERIFICAR CÓDIGO
+    // ----------------------------------------------------
+
+    const receivedHash = generateCodeHash(email, recoveryRecord.userId, code);
+
+    const validCode = compareCodeHashes(receivedHash, recoveryRecord.codeHash);
+
+    if (!validCode) {
+      if (attempts >= MAX_CODE_ATTEMPTS) {
+        await redis.del([keys.recovery, keys.attempts]);
+
+        throw new PasswordRecoveryError(
+          429,
+          'RECOVERY_ATTEMPTS_EXCEEDED',
+          'Se superó el límite de intentos. Solicita un código nuevo.',
+        );
+      }
+
+      throw new PasswordRecoveryError(
+        400,
+        'INVALID_RECOVERY_CODE',
+        'El código de recuperación es incorrecto.',
+      );
+    }
+
+    // ----------------------------------------------------
+    // CONSULTAR CUENTA
+    // ----------------------------------------------------
+
+    const userId = BigInt(recoveryRecord.userId);
+
+    const [user] = await db
+      .select({
+        id: users.UniqueID,
+        passwordHash: users.password_hash,
+      })
+      .from(users)
+      .where(and(eq(users.UniqueID, userId), eq(users.email, email)))
+      .limit(1);
+
+    if (!user) {
+      await redis.del([keys.recovery, keys.attempts]);
+
+      throw new PasswordRecoveryError(
+        400,
+        'INVALID_RECOVERY_CODE',
+        'El código de recuperación ya no es válido.',
+      );
+    }
+
+    // ----------------------------------------------------
+    // EVITAR REUTILIZAR CONTRASEÑA
+    // ----------------------------------------------------
+
+    const samePassword = await bcrypt.compare(newPassword, user.passwordHash);
+
+    if (samePassword) {
+      throw new PasswordRecoveryError(
+        400,
+        'PASSWORD_REUSED',
+        'La nueva contraseña debe ser diferente a la anterior.',
+      );
+    }
+
+    // ----------------------------------------------------
+    // GENERAR NUEVO HASH
+    // ----------------------------------------------------
+
+    const newPasswordHash = await bcrypt.hash(newPassword, PASSWORD_SALT_ROUNDS);
+
+    // ----------------------------------------------------
+    // CONSUMIR CÓDIGO
+    // ----------------------------------------------------
+
+    // Se consume antes de modificar PostgreSQL para impedir
+    // su reutilización. Si falla la transacción, el usuario
+    // deberá solicitar un código nuevo.
+
+    await redis.del([keys.recovery, keys.attempts]);
+
+    // ----------------------------------------------------
+    // ACTUALIZAR CONTRASEÑA Y REVOCAR SESIONES
+    // ----------------------------------------------------
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(users)
+        .set({
+          password_hash: newPasswordHash,
+          failed_attempts: 0,
+          locked_until: null,
+        })
+        .where(eq(users.UniqueID, userId));
+
+      await tx
+        .update(sessions)
+        .set({
+          revoked: true,
+        })
+        .where(and(eq(sessions.user_id, userId), eq(sessions.revoked, false)));
+    });
+
+    return {
+      message: 'Contraseña restablecida correctamente.',
+    };
+  } finally {
+    await releaseRecoveryLock(keys.lock, lockToken);
+  }
 }

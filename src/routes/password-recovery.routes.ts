@@ -1,9 +1,8 @@
-
 import { Router } from 'express';
 
 import {
-    forgotPasswordController,
-    resetPasswordController
+  forgotPasswordController,
+  resetPasswordController,
 } from '../controllers/password-recovery.controller.ts';
 
 const router = Router();
@@ -14,16 +13,10 @@ const router = Router();
 
 // Solicitar código de recuperación.
 // Ruta pública, no requiere JWT.
-router.post(
-    '/forgot-password',
-    forgotPasswordController
-);
+router.post('/forgot-password', forgotPasswordController);
 
 // Validar código y establecer nueva contraseña.
 // Ruta pública, no requiere JWT.
-router.post(
-    '/reset-password',
-    resetPasswordController
-);
+router.post('/reset-password', resetPasswordController);
 
 export default router;

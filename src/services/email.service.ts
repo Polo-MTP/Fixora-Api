@@ -1,4 +1,3 @@
-
 import { Resend } from 'resend';
 import { ENV } from '../config/env.ts';
 
@@ -249,8 +248,6 @@ Equipo Fixora.
 
   if (error) {
     console.error('Error de Resend:', error);
-    throw new Error(
-      'No fue posible enviar el correo de recuperación.',
-    );
+    throw new Error('No fue posible enviar el correo de recuperación.');
   }
 }
