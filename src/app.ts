@@ -61,8 +61,8 @@ app.use('/api/auth', authRoutes);
 //Categorias
 app.use('/api/categories', categoriesRoutes);
 
-//Cuentas
-app.use('/api/account', accountRoutes);
+// Mi cuenta (datos personales, contraseña y direcciones del usuario que inició sesión)
+app.use('/api/me', accountRoutes);
 
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {
