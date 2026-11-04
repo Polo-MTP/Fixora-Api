@@ -23,25 +23,22 @@ export type NotificationPersister = (record: NotificationRecord) => Promise<void
 export class NotificationObserver implements Observer<DomainEvent> {
   public readonly name = 'NotificationObserver';
   private readonly persister: NotificationPersister;
-  private readonly dispatchedRecords: NotificationRecord[] = [];
 
   constructor(customPersister?: NotificationPersister) {
     this.persister = customPersister ?? this.defaultDatabasePersister;
   }
 
+  // Si falla, el error llega al EventBus: lo registra y lo cuenta como fallo de este observador
+  // sin afectar a los demás. Tragárselo aquí haría que el bus lo reportara como éxito.
   private async defaultDatabasePersister(record: NotificationRecord): Promise<void> {
-    try {
-      await db.insert(notifications).values({
-        user_id: BigInt(record.userId),
-        type: record.type,
-        title: record.title,
-        message: record.message,
-        entity_type: record.entityType,
-        entity_id: record.entityId ? BigInt(record.entityId) : null,
-      });
-    } catch (error) {
-      console.warn('[NotificationObserver] No se pudo guardar la notificación en BD:', error);
-    }
+    await db.insert(notifications).values({
+      user_id: BigInt(record.userId),
+      type: record.type,
+      title: record.title,
+      message: record.message,
+      entity_type: record.entityType,
+      entity_id: record.entityId ? BigInt(record.entityId) : null,
+    });
   }
 
   public async handle(event: DomainEvent): Promise<void> {
@@ -90,7 +87,6 @@ export class NotificationObserver implements Observer<DomainEvent> {
       entityId: requestId,
     };
 
-    this.dispatchedRecords.push(record);
     await this.persister(record);
   }
 
@@ -111,7 +107,6 @@ export class NotificationObserver implements Observer<DomainEvent> {
       entityId: reportId,
     };
 
-    this.dispatchedRecords.push(record);
     await this.persister(record);
   }
 
@@ -131,15 +126,6 @@ export class NotificationObserver implements Observer<DomainEvent> {
       entityId: supplierId,
     };
 
-    this.dispatchedRecords.push(record);
     await this.persister(record);
-  }
-
-  public getDispatchedRecords(): ReadonlyArray<NotificationRecord> {
-    return this.dispatchedRecords;
-  }
-
-  public clearRecords(): void {
-    this.dispatchedRecords.length = 0;
   }
 }

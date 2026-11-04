@@ -19,7 +19,6 @@ export type RealTimePublisher = (message: RealTimeMessage) => Promise<void> | vo
 export class RealTimeObserver implements Observer<DomainEvent> {
   public readonly name = 'RealTimeObserver';
   private readonly publisher: RealTimePublisher;
-  private readonly publishedMessages: RealTimeMessage[] = [];
 
   constructor(customPublisher?: RealTimePublisher) {
     this.publisher = customPublisher ?? this.defaultConsolePublisher;
@@ -111,19 +110,6 @@ export class RealTimeObserver implements Observer<DomainEvent> {
   }
 
   private async emitMessage(message: RealTimeMessage): Promise<void> {
-    this.publishedMessages.push(message);
     await Promise.resolve(this.publisher(message));
-  }
-
-  public getPublishedMessages(): ReadonlyArray<RealTimeMessage> {
-    return this.publishedMessages;
-  }
-
-  public getMessagesForChannel(channel: string): RealTimeMessage[] {
-    return this.publishedMessages.filter((m) => m.channel === channel);
-  }
-
-  public clearMessages(): void {
-    this.publishedMessages.length = 0;
   }
 }
