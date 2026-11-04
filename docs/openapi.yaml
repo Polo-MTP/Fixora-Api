@@ -41,7 +41,7 @@ info:
     también `x-estado: planeado` y `x-ticket`.
 
 servers:
-  - url: http://localhost:3001
+  - url: http://localhost:3000
     description: Servidor local de desarrollo
 
 tags:
@@ -52,7 +52,7 @@ tags:
   - name: Autenticación
     description: Inicio de sesión, sesiones y recuperación de contraseña.
   - name: Mi cuenta
-    description: Datos personales, direcciones, dispositivos y notificaciones del usuario que inició sesión.
+    description: Administración de datos personales y direcciones del usuario autenticado.
   - name: Archivos
     description: Subida de archivos (documentos, fotos y evidencias).
   - name: Proveedores
@@ -496,6 +496,74 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/auth/forgot-password:
+    post:
+      tags:
+        - Autenticación
+      summary: '[Planeado · API-9] Pedir código para restablecer la contraseña'
+      description: |
+        Envía al correo un código de 6 dígitos con vigencia corta. Responde igual exista o no la
+        cuenta, para no revelar qué correos están registrados.
+      x-estado: planeado
+      x-ticket: API-9
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: Si la cuenta existe, se envió el código.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Se pidió otro código antes de tiempo (`RESEND_COOLDOWN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/reset-password:
+    post:
+      tags:
+        - Autenticación
+      summary: '[Planeado · API-9] Restablecer la contraseña con el código'
+      description: Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
+      x-estado: planeado
+      x-ticket: API-9
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Contraseña actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Datos inválidos o código incorrecto o vencido (`INVALID_RESET_CODE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Demasiados intentos con el código (`RESET_ATTEMPTS_EXCEEDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/dev/users:
     post:
       tags:
@@ -724,7 +792,215 @@ paths:
           description: La categoría ya está desactivada.
 
   # ==========================================================================
-  # Implementados (sin documentar hasta ahora)
+  # Módulo: Mi cuenta (Adaptado según res.yaml)
+  # ==========================================================================
+
+  /api/account/me:
+    get:
+      tags:
+        - Mi cuenta
+      summary: Consultar mis datos personales
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Datos de la cuenta obtenidos correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyAccountResponse'
+        '401':
+          description: No autenticado.
+        '404':
+          description: Cuenta no encontrada.
+
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Actualizar mis datos personales
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalDataUpdate'
+            example:
+              name: Jesús
+              lastname_p: Ramírez
+              lastname_m: López
+              birth_date: '2002-05-15'
+              phone: '8711234567'
+      responses:
+        '200':
+          description: Datos personales actualizados.
+        '400':
+          description: Datos inválidos.
+        '401':
+          description: No autenticado.
+
+  /api/account/me/password:
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Cambiar contraseña
+      description: Verifica la contraseña actual y actualiza la contraseña de la cuenta.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+            example:
+              currentPassword: 'ContraseñaActual123'
+              newPassword: 'ContraseñaNueva456'
+      responses:
+        '200':
+          description: Contraseña actualizada.
+        '400':
+          description: Contraseña actual incorrecta o nueva contraseña inválida.
+        '401':
+          description: No autenticado.
+
+  /api/account/addresses:
+    get:
+      tags:
+        - Mi cuenta
+      summary: Consultar mis direcciones
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Direcciones obtenidas correctamente.
+        '401':
+          description: No autenticado.
+
+    post:
+      tags:
+        - Mi cuenta
+      summary: Guardar una dirección
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressCreate'
+            example:
+              alias: Casa
+              reference: Cerca del parque
+              street: Avenida Juárez
+              num_ext: '123'
+              num_int: null
+              colony: Centro
+              municipality: Gómez Palacio
+              state: Durango
+              postal_code: '35000'
+              country: México
+              latitude: 25.563
+              longitude: -103.495
+              is_main: true
+      responses:
+        '201':
+          description: Dirección guardada correctamente.
+        '400':
+          description: Datos inválidos.
+        '401':
+          description: No autenticado.
+
+  /api/account/addresses/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        description: Identificador BIGINT de la dirección.
+
+    get:
+      tags:
+        - Mi cuenta
+      summary: Consultar una dirección propia
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dirección obtenida.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Dirección no encontrada.
+
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Modificar una dirección propia
+      description: Actualiza los datos de la dirección sin alterar referencias históricas.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressUpdate'
+            example:
+              alias: Casa nueva
+              street: Avenida Hidalgo
+              num_ext: '456'
+      responses:
+        '200':
+          description: Dirección actualizada.
+        '400':
+          description: Datos inválidos.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Dirección no encontrada.
+
+    delete:
+      tags:
+        - Mi cuenta
+      summary: Desactivar una dirección
+      description: Desactiva la asociación del usuario sin eliminar físicamente la dirección.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dirección desactivada.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Dirección no encontrada.
+
+  /api/account/addresses/{id}/main:
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Establecer dirección principal
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: Identificador BIGINT de la dirección.
+      responses:
+        '200':
+          description: Dirección principal actualizada.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Dirección no encontrada o no pertenece al usuario.
+
+  # ==========================================================================
+  # Implementados adicionales
   # ==========================================================================
 
   /api/health:
@@ -816,307 +1092,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
-  # ==========================================================================
-  # Planeados · Módulos 1 y 2 (cliente): recuperación de contraseña y Mi cuenta
-  # ==========================================================================
-
-  /api/auth/forgot-password:
-    post:
-      tags:
-        - Autenticación
-      summary: '[Planeado · API-9] Pedir código para restablecer la contraseña'
-      description: |
-        Envía al correo un código de 6 dígitos con vigencia corta. Responde igual exista o no la
-        cuenta, para no revelar qué correos están registrados.
-      x-estado: planeado
-      x-ticket: API-9
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EmailRequest'
-      responses:
-        '200':
-          description: Si la cuenta existe, se envió el código.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          description: Se pidió otro código antes de tiempo (`RESEND_COOLDOWN`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/auth/reset-password:
-    post:
-      tags:
-        - Autenticación
-      summary: '[Planeado · API-9] Restablecer la contraseña con el código'
-      description: Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
-      x-estado: planeado
-      x-ticket: API-9
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResetPasswordRequest'
-      responses:
-        '200':
-          description: Contraseña actualizada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
-        '400':
-          description: Datos inválidos o código incorrecto o vencido (`INVALID_RESET_CODE`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Demasiados intentos con el código (`RESET_ATTEMPTS_EXCEEDED`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/me:
-    get:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Consultar mi perfil'
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Perfil del usuario que inició sesión.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Profile'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    patch:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Editar mis datos personales'
-      description: El correo no se cambia por aquí.
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProfileUpdate'
-      responses:
-        '200':
-          description: Datos actualizados.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Profile'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /api/me/password:
-    patch:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Cambiar mi contraseña'
-      description: Cierra las demás sesiones; la actual sigue abierta.
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PasswordChange'
-      responses:
-        '200':
-          description: Contraseña actualizada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
-        '400':
-          description: La contraseña nueva no cumple las reglas, o la actual es incorrecta (`INVALID_CURRENT_PASSWORD`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /api/me/addresses:
-    get:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Listar mis direcciones'
-      description: Solo las activas; la principal va primero.
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Direcciones guardadas.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Address'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    post:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Guardar una dirección'
-      description: Si es la primera o llega con `is_main` en `true`, queda como principal.
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddressInput'
-      responses:
-        '201':
-          description: Dirección guardada.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Address'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /api/me/addresses/{id}:
-    parameters:
-      - $ref: '#/components/parameters/Id'
-    patch:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Editar una dirección'
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddressUpdate'
-      responses:
-        '200':
-          description: Dirección actualizada.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Address'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Borrar una dirección'
-      description: Baja lógica. Si era la principal, la más reciente pasa a ser principal.
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Dirección borrada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/me/addresses/{id}/main:
-    parameters:
-      - $ref: '#/components/parameters/Id'
-    post:
-      tags:
-        - Mi cuenta
-      summary: '[Planeado · API-10] Marcar una dirección como principal'
-      x-estado: planeado
-      x-ticket: API-10
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: La dirección ahora es la principal.
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Address'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
 
   # ==========================================================================
   # Planeados · Archivos
@@ -3129,7 +3104,7 @@ components:
         - inactivo
 
     # ------------------------------------------------------------------------
-    # Mi cuenta
+    # Mi cuenta (Schemas adaptados según res.yaml)
     # ------------------------------------------------------------------------
 
     EmailRequest:
@@ -3161,60 +3136,65 @@ components:
           minLength: 8
           maxLength: 72
 
-    Profile:
+    PersonalData:
       type: object
-      required:
-        - id
-        - email
-        - role
-        - state
-        - name
-        - lastname_p
       properties:
-        id:
-          type: string
-          example: '12'
-        email:
-          type: string
-          format: email
-        role:
-          $ref: '#/components/schemas/UserRole'
-        state:
-          $ref: '#/components/schemas/UserState'
         name:
           type: string
-          example: Ana
         lastname_p:
           type: string
-          example: Pérez
         lastname_m:
           type:
             - string
             - 'null'
-          example: López
         birth_date:
           type:
             - string
             - 'null'
           format: date
-          example: '2000-05-10'
         phone:
           type:
             - string
             - 'null'
-          example: '5512345678'
 
-    ProfileUpdate:
+    MyAccountResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            user:
+              type: object
+              properties:
+                id:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                role:
+                  type:
+                    - string
+                    - 'null'
+                state:
+                  type: string
+            personal_data:
+              oneOf:
+                - $ref: '#/components/schemas/PersonalData'
+                - type: 'null'
+
+    PersonalDataUpdate:
       type: object
       minProperties: 1
       properties:
         name:
           type: string
-          minLength: 1
           maxLength: 100
         lastname_p:
           type: string
-          minLength: 1
           maxLength: 100
         lastname_m:
           type:
@@ -3222,26 +3202,76 @@ components:
             - 'null'
           maxLength: 100
         birth_date:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date
         phone:
-          type: string
-          pattern: '^\d{10}$'
+          type:
+            - string
+            - 'null'
+          maxLength: 30
 
-    PasswordChange:
+    ChangePassword:
       type: object
       required:
-        - current_password
-        - new_password
+        - currentPassword
+        - newPassword
       properties:
-        current_password:
+        currentPassword:
           type: string
-        new_password:
+          format: password
+        newPassword:
           type: string
+          format: password
           minLength: 8
           maxLength: 72
 
-    AddressInput:
+    Address:
+      type: object
+      properties:
+        id:
+          type: string
+        alias:
+          type:
+            - string
+            - 'null'
+        is_main:
+          type: boolean
+        reference:
+          type:
+            - string
+            - 'null'
+        street:
+          type: string
+        num_ext:
+          type: string
+        num_int:
+          type:
+            - string
+            - 'null'
+        colony:
+          type: string
+        municipality:
+          type: string
+        state:
+          type: string
+        postal_code:
+          type: string
+        country:
+          type: string
+        latitude:
+          oneOf:
+            - type: number
+            - type: string
+            - type: 'null'
+        longitude:
+          oneOf:
+            - type: number
+            - type: string
+            - type: 'null'
+
+    AddressCreate:
       type: object
       required:
         - street
@@ -3250,77 +3280,74 @@ components:
         - municipality
         - state
         - postal_code
-        - latitude
-        - longitude
       properties:
         alias:
-          type: string
+          type:
+            - string
+            - 'null'
           maxLength: 100
-          example: Casa
         reference:
-          type: string
-          maxLength: 255
-          example: Portón negro, junto a la tienda.
+          type:
+            - string
+            - 'null'
         street:
           type: string
           maxLength: 255
-          example: Av. Juárez
         num_ext:
           type: string
           maxLength: 50
-          example: '120'
         num_int:
-          type: string
-          maxLength: 50
-          example: 3B
+          type:
+            - string
+            - 'null'
         colony:
           type: string
           maxLength: 150
-          example: Centro
         municipality:
           type: string
           maxLength: 150
-          example: Cuauhtémoc
         state:
           type: string
           maxLength: 150
-          example: Ciudad de México
         postal_code:
           type: string
-          pattern: '^\d{5}$'
-          example: '06000'
+          maxLength: 20
         country:
           type: string
           default: México
         latitude:
-          type: number
-          minimum: -90
-          maximum: 90
-          example: 19.4326
+          oneOf:
+            - type: number
+            - type: string
+            - type: 'null'
         longitude:
-          type: number
-          minimum: -180
-          maximum: 180
-          example: -99.1332
+          oneOf:
+            - type: number
+            - type: string
+            - type: 'null'
         is_main:
           type: boolean
-          default: false
 
     AddressUpdate:
       type: object
       minProperties: 1
-      description: Los mismos campos de `AddressInput`, todos opcionales.
       properties:
         alias:
-          type: string
+          type:
+            - string
+            - 'null'
         reference:
-          type: string
+          type:
+            - string
+            - 'null'
         street:
           type: string
         num_ext:
           type: string
         num_int:
-          type: string
+          type:
+            - string
+            - 'null'
         colony:
           type: string
         municipality:
@@ -3329,24 +3356,18 @@ components:
           type: string
         postal_code:
           type: string
-          pattern: '^\d{5}$'
         country:
           type: string
         latitude:
-          type: number
+          oneOf:
+            - type: number
+            - type: string
+            - type: 'null'
         longitude:
-          type: number
-
-    Address:
-      allOf:
-        - type: object
-          required:
-            - id
-          properties:
-            id:
-              type: string
-              example: '31'
-        - $ref: '#/components/schemas/AddressInput'
+          oneOf:
+            - type: number
+            - type: string
+            - type: 'null'
 
     # ------------------------------------------------------------------------
     # Archivos
@@ -4089,7 +4110,7 @@ components:
           type: string
           description: Dirección guardada. Manda esta o `address`.
         address:
-          $ref: '#/components/schemas/AddressInput'
+          $ref: '#/components/schemas/AddressCreate'
         attachment_keys:
           type: array
           maxItems: 5

@@ -14,6 +14,7 @@ import authRoutes from './routes/auth.routes.ts';
 import testAuthRoutes from './routes/auth.test.routes.ts';
 
 import categoriesRoutes from './routes/categories.routes.ts';
+import accountRoutes from './routes/account.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 
@@ -55,6 +56,9 @@ app.use('/api/auth', authRoutes);
 
 //Categorias
 app.use('/api/categories', categoriesRoutes);
+
+//Cuentas
+app.use('/api/account', accountRoutes);
 
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {
