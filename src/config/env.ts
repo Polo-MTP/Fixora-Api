@@ -19,4 +19,12 @@ export const ENV = {
   EMAIL_VERIFICATION_MAX_ATTEMPTS: Number(process.env.EMAIL_VERIFICATION_MAX_ATTEMPTS) || 5,
 
   EMAIL_VERIFICATION_RESEND_SECONDS: Number(process.env.EMAIL_VERIFICATION_RESEND_SECONDS) || 60,
+
+  // Almacenamiento local (tipo Laravel Storage) y enlaces firmados
+  STORAGE_DIR: process.env.STORAGE_DIR ?? 'storage',
+  STORAGE_SIGNED_URL_SECRET:
+    process.env.STORAGE_SIGNED_URL_SECRET ??
+    process.env.JWT_ACCESS_SECRET ??
+    'fixora_default_storage_signed_url_secret_key_32_chars_min',
+  APP_URL: process.env.APP_URL ?? `http://localhost:${Number(process.env.PORT) || 3001}`,
 } as const;
