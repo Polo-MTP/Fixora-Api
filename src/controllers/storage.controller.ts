@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Request, Response, NextFunction } from 'express';
 import { storageService } from '../services/storage.service.ts';
-import { BadRequestError } from '../errors/app-error.ts';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../errors/app-error.ts';
 import type { FileCategory } from '../types/storage.types.ts';
 
 const VALID_CATEGORIES: FileCategory[] = ['documents', 'photos', 'evidences'];
@@ -31,7 +31,12 @@ export class StorageController {
         req.body.is_verification === 'true' ||
         category === 'documents';
 
-      const result = await storageService.saveUploadedFile(req.file, category, isVerification);
+      const result = await storageService.saveUploadedFile(
+        req.file,
+        category,
+        req.user!.id,
+        isVerification,
+      );
 
       res.status(201).json({
         success: true,
@@ -77,18 +82,32 @@ export class StorageController {
   }
 
   /**
-   * Descarga o previsualiza un archivo mediante enlace firmado validado
+   * Descarga o previsualiza un archivo mediante enlace firmado validado.
+   * [forcedDisposition] lo usa /view para mostrarlo en el navegador aunque el enlace se haya
+   * firmado como descarga; la firma se valida siempre con la disposición con la que se firmó.
    */
-  async download(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async download(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    forcedDisposition?: 'inline' | 'attachment',
+  ): Promise<void> {
     try {
       const fileKey = (req.query.key as string) ?? '';
       const expires = (req.query.expires as string) ?? '';
       const signature = (req.query.signature as string) ?? '';
-      const disposition = req.query.disposition === 'attachment' ? 'attachment' : 'inline';
+      const signedDisposition = req.query.disposition === 'attachment' ? 'attachment' : 'inline';
+      const disposition = forcedDisposition ?? signedDisposition;
       const customName = req.query.name as string | undefined;
 
       // Validar firma y vigencia
-      storageService.verifySignedUrl(fileKey, expires, signature, disposition, req.user?.role);
+      storageService.verifySignedUrl(
+        fileKey,
+        expires,
+        signature,
+        signedDisposition,
+        req.user?.role,
+      );
 
       const fileInfo = await storageService.getFileForDownload(fileKey);
       const downloadFilename = customName ? path.basename(customName) : fileInfo.filename;
@@ -122,25 +141,29 @@ export class StorageController {
         throw new BadRequestError('Debes indicar el campo file_key a eliminar.');
       }
 
+      const isAdmin = req.user?.role === 'administrador';
+
       // Si es documento de verificación, solo un administrador puede eliminarlo
       const isVerification = storageService.isVerificationDocument(fileKey);
-      if (isVerification && req.user?.role !== 'administrador') {
-        throw new BadRequestError(
+      if (isVerification && !isAdmin) {
+        throw new ForbiddenError(
           'Solo el Administrador puede eliminar documentos de verificación.',
+          'FILE_DELETE_FORBIDDEN',
+        );
+      }
+
+      // Los demás archivos solo los borra quien los subió (o el administrador)
+      if (!isAdmin && storageService.getFileOwnerId(fileKey) !== req.user?.id) {
+        throw new ForbiddenError(
+          'Solo puedes eliminar archivos que tú subiste.',
+          'FILE_DELETE_FORBIDDEN',
         );
       }
 
       const deleted = await storageService.deleteFile(fileKey);
 
       if (!deleted) {
-        res.status(404).json({
-          success: false,
-          error: {
-            message: 'El archivo no existe o ya fue eliminado.',
-            statusCode: 404,
-          },
-        });
-        return;
+        throw new NotFoundError('El archivo no existe o ya fue eliminado.', 'FILE_NOT_FOUND');
       }
 
       res.status(200).json({
