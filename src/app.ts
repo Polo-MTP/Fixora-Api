@@ -5,12 +5,15 @@ import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 
 import { ENV } from './config/env.ts';
+import { connectRedis } from './config/redis.ts';
 import { requestLogger } from './middlewares/logger.middleware.ts';
 import { errorHandler, notFoundHandler } from './middlewares/error.middleware.ts';
 
 import { apiRouter } from './routes/index.ts';
 import authRoutes from './routes/auth.routes.ts';
 import testAuthRoutes from './routes/auth.test.routes.ts';
+
+import categoriesRoutes from './routes/categories.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
@@ -54,6 +57,9 @@ app.use('/api', apiRouter);
 // Autenticación
 app.use('/api/auth', authRoutes);
 
+//Categorias
+app.use('/api/categories', categoriesRoutes);
+
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {
   app.use('/api/dev', testAuthRoutes);
@@ -67,6 +73,8 @@ const port = ENV.PORT;
 
 async function startServer() {
   try {
+    connectRedis();
+
     app.listen(port, () => {
       console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);
       console.log(`Documentación: http://localhost:${port}/api/docs`);
