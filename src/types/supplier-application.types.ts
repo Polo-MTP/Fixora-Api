@@ -96,3 +96,34 @@ export interface SupplierApplicationResult {
   branches_count: number;
   documents_count: number;
 }
+
+export interface UploadDocumentInput {
+  supplierId: string | number | bigint;
+  typeDocumentId: string | number | bigint;
+  fileKey: string;
+  fileHash?: string | null;
+  dueDate?: string | null;
+}
+
+export interface ReplaceDocumentInput {
+  applicationId?: string | number | bigint;
+  userId?: string | number | bigint;
+  typeDocumentId: string | number | bigint;
+  fileKey?: string;
+  fileHash?: string | null;
+  dueDate?: string | null;
+  file?: Express.Multer.File;
+}
+
+export interface SupplierDocumentResponse {
+  id: string;
+  supplier_id: string;
+  type_document_id: string;
+  type_name: string;
+  file_key: string;
+  file_hash: string | null;
+  upload_date: string;
+  due_date: string | null;
+  validation_result?: string | null;
+  validation_comment?: string | null;
+}

@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { supplierApplicationService } from '../services/supplier-application.service.ts';
-import { BadRequestError } from '../errors/app-error.ts';
+import { BadRequestError, UnauthorizedError } from '../errors/app-error.ts';
 import type { CreateSupplierApplicationInput } from '../types/supplier-application.types.ts';
 
 export class SupplierApplicationController {
@@ -62,7 +62,7 @@ export class SupplierApplicationController {
   }
 
   /**
-   * Consulta el estado de una solicitud
+   * Consulta el estado de una solicitud (por email o applicationId)
    * GET /api/supplier-applications/status?email=... ó ?application_id=...
    */
   async getApplicationStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -82,6 +82,23 @@ export class SupplierApplicationController {
   }
 
   /**
+   * Consulta la solicitud del proveedor autenticado
+   * GET /api/supplier-applications/me
+   */
+  async getMyApplication(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user?.id) {
+        throw new UnauthorizedError('Debes iniciar sesión para consultar tu solicitud.');
+      }
+
+      const status = await supplierApplicationService.getMyApplication(req.user.id);
+      res.status(200).json({ data: status });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Consulta el estado de una solicitud por su ID en la URL
    * GET /api/supplier-applications/:id
    */
@@ -94,6 +111,67 @@ export class SupplierApplicationController {
       });
 
       res.status(200).json({ data: status });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Reemplazar un documento para el proveedor autenticado cuando está en 'documentacion_incompleta'
+   * PUT /api/supplier-applications/me/documents/:typeDocumentId
+   */
+  async replaceDocumentMe(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user?.id) {
+        throw new UnauthorizedError('Debes iniciar sesión para reemplazar documentos.');
+      }
+
+      const typeDocParam = req.params.typeDocumentId;
+      const typeDocumentId = Array.isArray(typeDocParam) ? typeDocParam[0] : typeDocParam;
+
+      const result = await supplierApplicationService.replaceDocument({
+        userId: req.user.id,
+        typeDocumentId,
+        dueDate: req.body?.due_date,
+        fileKey: req.body?.file_key,
+        file: req.file,
+      });
+
+      res.status(200).json({
+        data: result.document,
+        application_state: result.application_state,
+        message: result.message,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Reemplazar un documento por ID de solicitud cuando está en 'documentacion_incompleta'
+   * PUT /api/supplier-applications/:id/documents/:typeDocumentId
+   */
+  async replaceDocumentById(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const idParam = req.params.id;
+      const applicationId = Array.isArray(idParam) ? idParam[0] : idParam;
+
+      const typeDocParam = req.params.typeDocumentId;
+      const typeDocumentId = Array.isArray(typeDocParam) ? typeDocParam[0] : typeDocParam;
+
+      const result = await supplierApplicationService.replaceDocument({
+        applicationId,
+        typeDocumentId,
+        dueDate: req.body?.due_date,
+        fileKey: req.body?.file_key,
+        file: req.file,
+      });
+
+      res.status(200).json({
+        data: result.document,
+        application_state: result.application_state,
+        message: result.message,
+      });
     } catch (error) {
       next(error);
     }

@@ -1,7 +1,8 @@
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { SupplierApplicationService } from '../supplier-application.service.ts';
-import { BadRequestError } from '../../errors/app-error.ts';
+import { pgClient } from '../../config/database.ts';
+import { SupplierApplicationService, validateDueDate } from '../supplier-application.service.ts';
+import { BadRequestError, NotFoundError } from '../../errors/app-error.ts';
 import type { CreateSupplierApplicationInput } from '../../types/supplier-application.types.ts';
 
 describe('Asistente web de registro de proveedores (SupplierApplicationService)', () => {
@@ -264,14 +265,85 @@ describe('Asistente web de registro de proveedores (SupplierApplicationService)'
     });
   });
 
+  describe('Validación de Fecha de Vencimiento de Documentos (validateDueDate)', () => {
+    it('debe requerir fecha de vencimiento si el tipo de documento lo exige', () => {
+      assert.throws(
+        () => validateDueDate(null, true, 'Identificación Oficial'),
+        (err: Error) =>
+          err instanceof BadRequestError &&
+          err.message.includes('requiere indicar una fecha de vigencia'),
+      );
+
+      assert.throws(
+        () => validateDueDate('', true, 'Identificación Oficial'),
+        (err: Error) =>
+          err instanceof BadRequestError &&
+          err.message.includes('requiere indicar una fecha de vigencia'),
+      );
+    });
+
+    it('debe rechazar formatos de fecha no válidos', () => {
+      assert.throws(
+        () => validateDueDate('01-01-2030', true, 'Identificación Oficial'),
+        (err: Error) =>
+          err instanceof BadRequestError && err.message.includes('formato YYYY-MM-DD'),
+      );
+    });
+
+    it('debe rechazar fechas en el pasado o vencidas', () => {
+      assert.throws(
+        () => validateDueDate('2020-01-01', true, 'Identificación Oficial'),
+        (err: Error) => err instanceof BadRequestError && err.message.includes('está vencido'),
+      );
+    });
+
+    it('debe aceptar fechas válidas en el futuro', () => {
+      const futureDate = '2030-12-31';
+      const result = validateDueDate(futureDate, true, 'Identificación Oficial');
+      assert.strictEqual(result, futureDate);
+    });
+
+    it('debe retornar null si no requiere vigencia y no se envía fecha', () => {
+      const result = validateDueDate(null, false, 'Comprobante de Domicilio');
+      assert.strictEqual(result, null);
+    });
+  });
+
+  describe('Reemplazo de Documentos en Solicitudes Incompletas', () => {
+    it('debe rechazar si no se envía ni applicationId ni userId', async () => {
+      await assert.rejects(
+        async () => service.replaceDocument({ typeDocumentId: 1 }),
+        (err: Error) =>
+          err instanceof BadRequestError &&
+          err.message.includes('el ID de la solicitud o la sesión'),
+      );
+    });
+
+    it('debe rechazar si la solicitud no existe', async () => {
+      await assert.rejects(
+        async () => service.replaceDocument({ applicationId: 999999, typeDocumentId: 1 }),
+        (err: Error) =>
+          err instanceof NotFoundError && err.message.includes('No se encontró la solicitud'),
+      );
+    });
+  });
+
   describe('Consulta de estado de solicitud', () => {
-    it('debe rechazar si no se envía ni applicationId ni email', async () => {
+    it('debe rechazar si no se envía ni applicationId ni email ni supplierId', async () => {
       await assert.rejects(
         async () => service.getApplicationStatus({}),
         (err: Error) =>
           err instanceof BadRequestError &&
-          err.message.includes('el id de la solicitud o el correo'),
+          err.message.includes('el id de la solicitud, el id del proveedor o el correo'),
       );
     });
+  });
+
+  after(async () => {
+    try {
+      await pgClient.end({ timeout: 1 });
+    } catch {
+      // Ignorar si ya estaba cerrado
+    }
   });
 });

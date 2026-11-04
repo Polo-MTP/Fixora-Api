@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { and, desc, eq, or } from 'drizzle-orm';
 import { db } from '../config/database.ts';
@@ -8,6 +9,7 @@ import {
   branch_schedules,
   business,
   business_supplier,
+  document_validations,
   employees,
   personal_data,
   roles,
@@ -20,9 +22,13 @@ import {
 import { AppError, BadRequestError, ConflictError, NotFoundError } from '../errors/app-error.ts';
 import { eventBus } from '../events/index.ts';
 import { SupplierVerificationEvent } from '../events/events/domain-events.ts';
+import { storageService } from './storage.service.ts';
 import type {
   CreateSupplierApplicationInput,
+  ReplaceDocumentInput,
   SupplierApplicationResult,
+  SupplierType,
+  UploadDocumentInput,
 } from '../types/supplier-application.types.ts';
 
 // ============================================================================
@@ -58,6 +64,43 @@ function normalizeTime(timeStr: string): string {
   return trimmed.length === 5 ? `${trimmed}:00` : trimmed;
 }
 
+export function validateDueDate(
+  dueDateStr: string | null | undefined,
+  requiresExpiration: boolean,
+  docName = 'El documento',
+): string | null {
+  if (requiresExpiration) {
+    if (!dueDateStr || !dueDateStr.trim()) {
+      throw new BadRequestError(
+        `El documento '${docName}' requiere indicar una fecha de vigencia/vencimiento.`,
+        'EXPIRATION_DATE_REQUIRED',
+      );
+    }
+  }
+
+  if (!dueDateStr || !dueDateStr.trim()) {
+    return null;
+  }
+
+  const trimmed = dueDateStr.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    throw new BadRequestError(
+      `La fecha de vencimiento para '${docName}' debe tener el formato YYYY-MM-DD.`,
+      'INVALID_DUE_DATE_FORMAT',
+    );
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  if (trimmed <= todayStr) {
+    throw new BadRequestError(
+      `El documento '${docName}' está vencido; la fecha de vigencia (${trimmed}) debe ser posterior a la fecha actual.`,
+      'DOCUMENT_EXPIRED',
+    );
+  }
+
+  return trimmed;
+}
+
 // ============================================================================
 // SERVICIO PRINCIPAL: ASISTENTE WEB DE REGISTRO
 // ============================================================================
@@ -65,6 +108,7 @@ function normalizeTime(timeStr: string): string {
 export class SupplierApplicationService {
   /**
    * Catálogo de documentos requeridos para el asistente de registro
+   * Filtra según el tipo de proveedor (independiente, empresa o ambos)
    */
   async getDocumentTypes(supplierType?: 'independiente' | 'empresa' | 'ambos') {
     let whereClause = eq(type_documents.active, true);
@@ -410,20 +454,33 @@ export class SupplierApplicationService {
         }
       }
 
-      // 5.9 Documentos adjuntos (si fueron enviados en el registro)
+      // 5.9 Documentos adjuntos con validación de vencimiento y hash
       let documentsCreated = 0;
       const today = new Date().toISOString().split('T')[0];
 
       if (Array.isArray(input.documents) && input.documents.length > 0) {
         for (const doc of input.documents) {
           if (doc.type_document_id && doc.file_key) {
+            const [docType] = await tx
+              .select()
+              .from(type_documents)
+              .where(eq(type_documents.UniqueID, BigInt(doc.type_document_id)))
+              .limit(1);
+
+            const validatedDueDate = docType
+              ? validateDueDate(doc.due_date, docType.requires_expiration_date, docType.name)
+              : doc.due_date || null;
+
+            const fileHash =
+              doc.file_hash || crypto.createHash('sha256').update(doc.file_key).digest('hex');
+
             await tx.insert(supplier_documents).values({
               supplier_id: newSupplier.id,
               type_document_id: BigInt(doc.type_document_id),
               file_key: doc.file_key,
-              file_hash: doc.file_hash || null,
+              file_hash: fileHash,
               upload_date: today,
-              due_date: doc.due_date || null,
+              due_date: validatedDueDate,
               is_public: false,
             });
             documentsCreated++;
@@ -432,7 +489,6 @@ export class SupplierApplicationService {
       }
 
       // 5.10 Crear registro en supplier_applications
-      // Fecha límite estimada de revisión (30 días naturales)
       const dueDateObj = new Date();
       dueDateObj.setDate(dueDateObj.getDate() + 30);
       const dueDate = dueDateObj.toISOString().split('T')[0];
@@ -478,7 +534,6 @@ export class SupplierApplicationService {
         }),
       );
     } catch (eventErr) {
-      // El error de evento no detiene la respuesta de la solicitud ya guardada
       console.error('[SupplierApplicationService] Error al emitir evento de dominio:', eventErr);
     }
 
@@ -498,18 +553,303 @@ export class SupplierApplicationService {
   }
 
   /**
-   * Consulta el estado de una solicitud (por ID de solicitud o por correo)
+   * Sube o registra un documento individual para un proveedor con hash y fecha de vencimiento
    */
-  async getApplicationStatus(options: { applicationId?: string; email?: string }) {
-    if (!options.applicationId && !options.email) {
+  async uploadSupplierDocument(input: UploadDocumentInput) {
+    const supplierId = BigInt(input.supplierId);
+    const typeDocId = BigInt(input.typeDocumentId);
+
+    const [supplier] = await db
+      .select({ id: suppliers.UniqueID })
+      .from(suppliers)
+      .where(eq(suppliers.UniqueID, supplierId))
+      .limit(1);
+
+    if (!supplier) {
+      throw new NotFoundError('No se encontró el proveedor especificado.', 'SUPPLIER_NOT_FOUND');
+    }
+
+    const [docType] = await db
+      .select()
+      .from(type_documents)
+      .where(eq(type_documents.UniqueID, typeDocId))
+      .limit(1);
+
+    if (!docType) {
+      throw new NotFoundError(
+        'El tipo de documento especificado no existe.',
+        'DOCUMENT_TYPE_NOT_FOUND',
+      );
+    }
+
+    const validatedDueDate = validateDueDate(
+      input.dueDate,
+      docType.requires_expiration_date,
+      docType.name,
+    );
+
+    const fileHash =
+      input.fileHash || crypto.createHash('sha256').update(input.fileKey).digest('hex');
+    const today = new Date().toISOString().split('T')[0];
+
+    // Verificar si ya existe un documento para este tipo y proveedor
+    const [existingDoc] = await db
+      .select({ id: supplier_documents.UniqueID })
+      .from(supplier_documents)
+      .where(
+        and(
+          eq(supplier_documents.supplier_id, supplierId),
+          eq(supplier_documents.type_document_id, typeDocId),
+        ),
+      )
+      .limit(1);
+
+    let docId: bigint;
+    if (existingDoc) {
+      await db
+        .update(supplier_documents)
+        .set({
+          file_key: input.fileKey,
+          file_hash: fileHash,
+          upload_date: today,
+          due_date: validatedDueDate,
+        })
+        .where(eq(supplier_documents.UniqueID, existingDoc.id));
+      docId = existingDoc.id;
+    } else {
+      const [inserted] = await db
+        .insert(supplier_documents)
+        .values({
+          supplier_id: supplierId,
+          type_document_id: typeDocId,
+          file_key: input.fileKey,
+          file_hash: fileHash,
+          upload_date: today,
+          due_date: validatedDueDate,
+          is_public: false,
+        })
+        .returning({ id: supplier_documents.UniqueID });
+      docId = inserted.id;
+    }
+
+    return {
+      id: docId.toString(),
+      supplier_id: supplierId.toString(),
+      type_document_id: typeDocId.toString(),
+      type_name: docType.name,
+      file_key: input.fileKey,
+      file_hash: fileHash,
+      upload_date: today,
+      due_date: validatedDueDate,
+    };
+  }
+
+  /**
+   * Reemplaza un documento cuando la solicitud está en 'documentacion_incompleta'
+   * Al subsanar los documentos requeridos, la solicitud regresa automáticamente a 'pendiente'
+   */
+  async replaceDocument(input: ReplaceDocumentInput) {
+    if (!input.applicationId && !input.userId) {
       throw new BadRequestError(
-        'Debes proporcionar el id de la solicitud o el correo del encargado.',
+        'Debes proporcionar el ID de la solicitud o la sesión del proveedor.',
+      );
+    }
+
+    // 1. Localizar la solicitud de proveedor
+    let applicationRow;
+    if (input.userId) {
+      const rows = await db
+        .select({
+          application_id: supplier_applications.UniqueID,
+          application_state: supplier_applications.state,
+          supplier_id: suppliers.UniqueID,
+          supplier_type: suppliers.supplier_type,
+          user_id: suppliers.user_id,
+        })
+        .from(supplier_applications)
+        .innerJoin(suppliers, eq(supplier_applications.supplier_id, suppliers.UniqueID))
+        .where(eq(suppliers.user_id, BigInt(input.userId)))
+        .orderBy(desc(supplier_applications.application_date))
+        .limit(1);
+      applicationRow = rows[0];
+    } else {
+      const rows = await db
+        .select({
+          application_id: supplier_applications.UniqueID,
+          application_state: supplier_applications.state,
+          supplier_id: suppliers.UniqueID,
+          supplier_type: suppliers.supplier_type,
+          user_id: suppliers.user_id,
+        })
+        .from(supplier_applications)
+        .innerJoin(suppliers, eq(supplier_applications.supplier_id, suppliers.UniqueID))
+        .where(eq(supplier_applications.UniqueID, BigInt(input.applicationId!)))
+        .limit(1);
+      applicationRow = rows[0];
+    }
+
+    if (!applicationRow) {
+      throw new NotFoundError(
+        'No se encontró la solicitud de proveedor correspondiente.',
+        'APPLICATION_NOT_FOUND',
+      );
+    }
+
+    // 2. Validar estado de la solicitud
+    if (applicationRow.application_state === 'aprobada') {
+      throw new ConflictError(
+        'La solicitud ya se encuentra aprobada y no requiere reemplazar documentos.',
+        'APPLICATION_ALREADY_APPROVED',
+      );
+    }
+
+    if (
+      applicationRow.application_state !== 'documentacion_incompleta' &&
+      applicationRow.application_state !== 'rechazada'
+    ) {
+      throw new ConflictError(
+        `La solicitud se encuentra en estado '${applicationRow.application_state}'. Solo se pueden reemplazar documentos cuando la solicitud vuelve como 'documentacion_incompleta'.`,
+        'APPLICATION_NOT_EDITABLE',
+      );
+    }
+
+    // 3. Procesar archivo o clave
+    let fileKey = input.fileKey;
+    let fileHash = input.fileHash || null;
+
+    if (input.file) {
+      storageService.validateFile(input.file, 'documents');
+      const saved = await storageService.saveUploadedFile(input.file, 'documents');
+      fileKey = saved.file_key;
+      fileHash = crypto.createHash('sha256').update(input.file.buffer).digest('hex');
+    }
+
+    if (!fileKey) {
+      throw new BadRequestError(
+        'Debes adjuntar el archivo o proporcionar la clave del documento (file_key).',
+        'FILE_REQUIRED',
+      );
+    }
+
+    // 4. Subir / reemplazar el documento
+    const uploadedDoc = await this.uploadSupplierDocument({
+      supplierId: applicationRow.supplier_id,
+      typeDocumentId: input.typeDocumentId,
+      fileKey,
+      fileHash,
+      dueDate: input.dueDate,
+    });
+
+    // 5. Verificar si se completaron todos los documentos requeridos
+    const isComplete = await this.checkMandatoryDocumentsComplete(
+      applicationRow.supplier_id,
+      applicationRow.supplier_type as SupplierType,
+    );
+
+    let updatedState: string = applicationRow.application_state;
+    if (isComplete) {
+      await db
+        .update(supplier_applications)
+        .set({
+          state: 'pendiente',
+        })
+        .where(eq(supplier_applications.UniqueID, applicationRow.application_id));
+
+      updatedState = 'pendiente';
+
+      // Notificar mediante el bus de eventos
+      try {
+        await eventBus.notify(
+          new SupplierVerificationEvent({
+            supplierId: applicationRow.supplier_id.toString(),
+            userId: applicationRow.user_id.toString(),
+            documentId: uploadedDoc.id,
+            result: 'pendiente',
+            reviewedBy: 'supplier',
+            supplierType: applicationRow.supplier_type,
+            comment:
+              'Documentación incompleta subsanada por el proveedor. Solicitud enviada a revisión.',
+          }),
+        );
+      } catch (err) {
+        console.error('[SupplierApplicationService] Error al emitir evento de verificación:', err);
+      }
+    }
+
+    return {
+      document: uploadedDoc,
+      application_id: applicationRow.application_id.toString(),
+      application_state: updatedState,
+      is_complete: isComplete,
+      message: isComplete
+        ? 'Documento reemplazado con éxito. Se han completado los documentos obligatorios y tu solicitud ha regresado a estado pendiente de revisión.'
+        : 'Documento reemplazado con éxito.',
+    };
+  }
+
+  /**
+   * Revisa si un proveedor ya cuenta con todos los documentos obligatorios subidos
+   */
+  async checkMandatoryDocumentsComplete(
+    supplierId: bigint,
+    supplierType: SupplierType,
+  ): Promise<boolean> {
+    const mandatoryTypes = await db
+      .select({ id: type_documents.UniqueID })
+      .from(type_documents)
+      .where(
+        and(
+          eq(type_documents.active, true),
+          eq(type_documents.mandatory, true),
+          or(
+            eq(type_documents.supplier_type, supplierType),
+            eq(type_documents.supplier_type, 'ambos'),
+          ),
+        ),
+      );
+
+    if (mandatoryTypes.length === 0) {
+      return true;
+    }
+
+    const uploadedDocs = await db
+      .select({
+        id: supplier_documents.UniqueID,
+        type_document_id: supplier_documents.type_document_id,
+      })
+      .from(supplier_documents)
+      .where(eq(supplier_documents.supplier_id, supplierId));
+
+    const uploadedTypeIds = new Set(uploadedDocs.map((d) => d.type_document_id.toString()));
+
+    for (const m of mandatoryTypes) {
+      if (!uploadedTypeIds.has(m.id.toString())) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Consulta el estado de una solicitud (por ID de solicitud, ID de proveedor o por correo)
+   */
+  async getApplicationStatus(options: {
+    applicationId?: string;
+    email?: string;
+    supplierId?: string;
+  }) {
+    if (!options.applicationId && !options.email && !options.supplierId) {
+      throw new BadRequestError(
+        'Debes proporcionar el id de la solicitud, el id del proveedor o el correo del encargado.',
       );
     }
 
     let whereClause;
     if (options.applicationId) {
       whereClause = eq(supplier_applications.UniqueID, BigInt(options.applicationId));
+    } else if (options.supplierId) {
+      whereClause = eq(supplier_applications.supplier_id, BigInt(options.supplierId));
     } else {
       whereClause = eq(users.email, options.email!.trim().toLowerCase());
     }
@@ -548,16 +888,50 @@ export class SupplierApplicationService {
 
     const row = rows[0];
 
-    // Contar documentos
+    // Obtener documentos con sus validaciones más recientes
     const docs = await db
       .select({
         id: supplier_documents.UniqueID,
         type_document_id: supplier_documents.type_document_id,
+        type_name: type_documents.name,
+        requires_expiration_date: type_documents.requires_expiration_date,
+        mandatory: type_documents.mandatory,
         file_key: supplier_documents.file_key,
+        file_hash: supplier_documents.file_hash,
         upload_date: supplier_documents.upload_date,
+        due_date: supplier_documents.due_date,
       })
       .from(supplier_documents)
+      .innerJoin(type_documents, eq(supplier_documents.type_document_id, type_documents.UniqueID))
       .where(eq(supplier_documents.supplier_id, row.supplier_id));
+
+    const docsWithValidations = await Promise.all(
+      docs.map(async (doc) => {
+        const [validation] = await db
+          .select({
+            result: document_validations.result,
+            comment: document_validations.comment,
+            reviewed_at: document_validations.reviewed_at,
+          })
+          .from(document_validations)
+          .where(eq(document_validations.document_id, doc.id))
+          .orderBy(desc(document_validations.reviewed_at))
+          .limit(1);
+
+        return {
+          id: doc.id.toString(),
+          type_document_id: doc.type_document_id.toString(),
+          type_name: doc.type_name,
+          requires_expiration_date: doc.requires_expiration_date,
+          mandatory: doc.mandatory,
+          file_key: doc.file_key,
+          file_hash: doc.file_hash,
+          upload_date: doc.upload_date,
+          due_date: doc.due_date,
+          validation: validation || null,
+        };
+      }),
+    );
 
     return {
       id: row.application_id.toString(),
@@ -571,13 +945,28 @@ export class SupplierApplicationService {
       manager_name: `${row.manager_name || ''} ${row.manager_lastname || ''}`.trim(),
       email: row.manager_email,
       manager_state: row.manager_state,
-      documents: docs.map((d) => ({
-        id: d.id.toString(),
-        type_document_id: d.type_document_id.toString(),
-        file_key: d.file_key,
-        upload_date: d.upload_date,
-      })),
+      documents: docsWithValidations,
     };
+  }
+
+  /**
+   * Consulta la solicitud y documentos del proveedor autenticado
+   */
+  async getMyApplication(userId: string | bigint) {
+    const [supplier] = await db
+      .select({ id: suppliers.UniqueID })
+      .from(suppliers)
+      .where(eq(suppliers.user_id, BigInt(userId)))
+      .limit(1);
+
+    if (!supplier) {
+      throw new NotFoundError(
+        'No tienes una solicitud de proveedor registrada.',
+        'APPLICATION_NOT_FOUND',
+      );
+    }
+
+    return this.getApplicationStatus({ supplierId: supplier.id.toString() });
   }
 }
 
