@@ -5,6 +5,7 @@ import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 
 import { ENV } from './config/env.ts';
+import { connectRedis } from './config/redis.ts';
 import { requestLogger } from './middlewares/logger.middleware.ts';
 import { errorHandler, notFoundHandler } from './middlewares/error.middleware.ts';
 
@@ -68,6 +69,8 @@ const port = ENV.PORT;
 
 async function startServer() {
   try {
+    connectRedis();
+
     app.listen(port, () => {
       console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);
       console.log(`Documentación: http://localhost:${port}/api/docs`);
