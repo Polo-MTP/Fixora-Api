@@ -9,7 +9,7 @@ export class UserService {
   async getUserById(id: bigint) {
     const user = await userRepository.findById(id);
     if (!user) {
-      throw new NotFoundError(`Usuario con ID ${id} no encontrado`);
+      throw new NotFoundError(`Usuario con ID ${id} no encontrado`, 'USER_NOT_FOUND');
     }
     return user;
   }
