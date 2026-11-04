@@ -26,6 +26,7 @@ export interface AuthenticatedUser {
 // Los tipos de Express declaran Request dentro del namespace global `Express`; extenderlo es la
 // forma documentada de agregar `req.user`, así que aquí la regla no aplica.
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: AuthenticatedUser;
@@ -135,7 +136,7 @@ export async function authenticateToken(
     // en el enum de la base de datos.
     const accountState = String(session.userState).trim().toLowerCase();
 
-    if ((accountState !== 'activo' && accountState !== 'activa') || !session.roleActive) {
+    if (accountState !== 'activo' || !session.roleActive) {
       res.status(403).json({
         error: 'ACCOUNT_NOT_ACTIVE',
         message: 'La cuenta no está habilitada.',
