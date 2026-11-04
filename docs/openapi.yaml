@@ -1030,18 +1030,18 @@ components:
         id:
           type: string
           description: Identificador único de la categoría.
-          example: "123"
+          example: '123'
         name:
           type: string
-          example: "Plomería"
+          example: 'Plomería'
         slug:
           type: string
-          example: "plomeria"
+          example: 'plomeria'
         icon_key:
           type:
             - string
-            - "null"
-          example: "wrench"
+            - 'null'
+          example: 'wrench'
         sort_order:
           type: integer
           example: 1
@@ -1064,17 +1064,17 @@ components:
           type: string
           minLength: 2
           maxLength: 150
-          example: "Plomería"
+          example: 'Plomería'
         slug:
           type: string
           maxLength: 150
-          example: "plomeria"
+          example: 'plomeria'
         icon_key:
           type:
             - string
-            - "null"
+            - 'null'
           maxLength: 500
-          example: "wrench"
+          example: 'wrench'
         sort_order:
           type: integer
           minimum: 0
@@ -1093,17 +1093,17 @@ components:
           type: string
           minLength: 2
           maxLength: 150
-          example: "Instalaciones hidráulicas"
+          example: 'Instalaciones hidráulicas'
         slug:
           type: string
           maxLength: 150
-          example: "instalaciones-hidraulicas"
+          example: 'instalaciones-hidraulicas'
         icon_key:
           type:
             - string
-            - "null"
+            - 'null'
           maxLength: 500
-          example: "wrench"
+          example: 'wrench'
         sort_order:
           type: integer
           minimum: 0
@@ -1120,7 +1120,7 @@ components:
           example: true
         message:
           type: string
-          example: "Categorías obtenidas correctamente."
+          example: 'Categorías obtenidas correctamente.'
         data:
           type: array
           items:
@@ -1145,11 +1145,11 @@ components:
           example: CATEGORY_NOT_FOUND
         message:
           type: string
-          example: "Categoría no encontrada."
+          example: 'Categoría no encontrada.'
       required:
         - error
         - message
-        
+
   responses:
     InvalidInput:
       description: Faltan datos obligatorios o tienen un formato inválido.
