@@ -23,7 +23,10 @@ export interface AuthenticatedUser {
   sessionId: string;
 }
 
+// Los tipos de Express declaran Request dentro del namespace global `Express`; extenderlo es la
+// forma documentada de agregar `req.user`, así que aquí la regla no aplica.
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: AuthenticatedUser;
