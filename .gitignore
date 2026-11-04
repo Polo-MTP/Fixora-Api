@@ -46,6 +46,11 @@ temp/
 *.pid
 *.seed
 *.pid.lock
+# Local Storage (archivos subidos tipo Laravel Storage)
+storage/
+storage/*
+!storage/.gitkeep
+
 .agents/
 .claude/
 .cursor/

@@ -41,7 +41,7 @@ info:
     también `x-estado: planeado` y `x-ticket`.
 
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:3001
     description: Servidor local de desarrollo
 
 tags:
@@ -50,11 +50,9 @@ tags:
   - name: Registro
     description: Registro de clientes y verificación de correo electrónico.
   - name: Autenticación
-    description: Inicio de sesión, sesiones y administración de tokens.
-  - name: Recuperación de contraseña
-    description: Solicitud de recuperación y restablecimiento de contraseña mediante código temporal.
+    description: Inicio de sesión, sesiones y recuperación de contraseña.
   - name: Mi cuenta
-    description: Administración de datos personales y direcciones del usuario autenticado.
+    description: Datos personales, direcciones, dispositivos y notificaciones del usuario que inició sesión.
   - name: Archivos
     description: Subida de archivos (documentos, fotos y evidencias).
   - name: Proveedores
@@ -498,62 +496,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /api/auth/forgot-password:
-    post:
-      tags:
-        - Recuperación de contraseña
-      summary: Solicitar recuperación de contraseña
-      description: Envía un código temporal al correo si la cuenta existe. La respuesta no revela si el correo está registrado.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ForgotPasswordRequest'
-            example:
-              email: cliente@fixora.test
-      responses:
-        '200':
-          description: Solicitud procesada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RecoveryMessageResponse'
-        '400':
-          description: Correo inválido.
-        '503':
-          description: Servicio de recuperación o correo no disponible.
-
-  /api/auth/reset-password:
-    post:
-      tags:
-        - Recuperación de contraseña
-      summary: Restablecer contraseña
-      description: Valida el código de recuperación y cambia la contraseña. Las sesiones anteriores son revocadas.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResetPasswordRequest'
-            example:
-              email: cliente@fixora.test
-              code: '482915'
-              newPassword: NuevaContrasena123
-      responses:
-        '200':
-          description: Contraseña restablecida correctamente.
-        '400':
-          description: Datos inválidos, código incorrecto, expirado o contraseña reutilizada.
-        '409':
-          description: Existe otra solicitud de recuperación en proceso.
-        '429':
-          description: Se superó el límite de intentos.
-        '503':
-          description: Redis no está disponible.
-
   /api/dev/users:
     post:
       tags:
@@ -782,215 +724,7 @@ paths:
           description: La categoría ya está desactivada.
 
   # ==========================================================================
-  # Módulo: Mi cuenta
-  # ==========================================================================
-
-  /api/account/me:
-    get:
-      tags:
-        - Mi cuenta
-      summary: Consultar mis datos personales
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Datos de la cuenta obtenidos correctamente.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MyAccountResponse'
-        '401':
-          description: No autenticado.
-        '404':
-          description: Cuenta no encontrada.
-
-    patch:
-      tags:
-        - Mi cuenta
-      summary: Actualizar mis datos personales
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PersonalDataUpdate'
-            example:
-              name: Jesús
-              lastname_p: Ramírez
-              lastname_m: López
-              birth_date: '2002-05-15'
-              phone: '8711234567'
-      responses:
-        '200':
-          description: Datos personales actualizados.
-        '400':
-          description: Datos inválidos.
-        '401':
-          description: No autenticado.
-
-  /api/account/me/password:
-    patch:
-      tags:
-        - Mi cuenta
-      summary: Cambiar contraseña
-      description: Verifica la contraseña actual y actualiza la contraseña de la cuenta.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChangePassword'
-            example:
-              currentPassword: 'ContraseñaActual123'
-              newPassword: 'ContraseñaNueva456'
-      responses:
-        '200':
-          description: Contraseña actualizada.
-        '400':
-          description: Contraseña actual incorrecta o nueva contraseña inválida.
-        '401':
-          description: No autenticado.
-
-  /api/account/addresses:
-    get:
-      tags:
-        - Mi cuenta
-      summary: Consultar mis direcciones
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Direcciones obtenidas correctamente.
-        '401':
-          description: No autenticado.
-
-    post:
-      tags:
-        - Mi cuenta
-      summary: Guardar una dirección
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddressCreate'
-            example:
-              alias: Casa
-              reference: Cerca del parque
-              street: Avenida Juárez
-              num_ext: '123'
-              num_int: null
-              colony: Centro
-              municipality: Gómez Palacio
-              state: Durango
-              postal_code: '35000'
-              country: México
-              latitude: 25.563
-              longitude: -103.495
-              is_main: true
-      responses:
-        '201':
-          description: Dirección guardada correctamente.
-        '400':
-          description: Datos inválidos.
-        '401':
-          description: No autenticado.
-
-  /api/account/addresses/{id}:
-    parameters:
-      - in: path
-        name: id
-        required: true
-        schema:
-          type: string
-        description: Identificador BIGINT de la dirección.
-
-    get:
-      tags:
-        - Mi cuenta
-      summary: Consultar una dirección propia
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Dirección obtenida.
-        '401':
-          description: No autenticado.
-        '404':
-          description: Dirección no encontrada.
-
-    patch:
-      tags:
-        - Mi cuenta
-      summary: Modificar una dirección propia
-      description: Actualiza los datos de la dirección sin alterar referencias históricas.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddressUpdate'
-            example:
-              alias: Casa nueva
-              street: Avenida Hidalgo
-              num_ext: '456'
-      responses:
-        '200':
-          description: Dirección actualizada.
-        '400':
-          description: Datos inválidos.
-        '401':
-          description: No autenticado.
-        '404':
-          description: Dirección no encontrada.
-
-    delete:
-      tags:
-        - Mi cuenta
-      summary: Desactivar una dirección
-      description: Desactiva la asociación del usuario sin eliminar físicamente la dirección.
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Dirección desactivada.
-        '401':
-          description: No autenticado.
-        '404':
-          description: Dirección no encontrada.
-
-  /api/account/addresses/{id}/main:
-    patch:
-      tags:
-        - Mi cuenta
-      summary: Establecer dirección principal
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-          description: Identificador BIGINT de la dirección.
-      responses:
-        '200':
-          description: Dirección principal actualizada.
-        '401':
-          description: No autenticado.
-        '404':
-          description: Dirección no encontrada o no pertenece al usuario.
-
-  # ==========================================================================
-  # Implementados adicionales
+  # Implementados (sin documentar hasta ahora)
   # ==========================================================================
 
   /api/health:
@@ -1084,20 +818,414 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
-  # Planeados · Archivos
+  # Planeados · Módulos 1 y 2 (cliente): recuperación de contraseña
   # ==========================================================================
 
-  /api/files:
+  /api/auth/forgot-password:
+    post:
+      tags:
+        - Autenticación
+      summary: '[Planeado · API-9] Pedir código para restablecer la contraseña'
+      description: |
+        Envía al correo un código de 6 dígitos con vigencia corta. Responde igual exista o no la
+        cuenta, para no revelar qué correos están registrados.
+      x-estado: planeado
+      x-ticket: API-9
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: Si la cuenta existe, se envió el código.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Se pidió otro código antes de tiempo (`RESEND_COOLDOWN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/reset-password:
+    post:
+      tags:
+        - Autenticación
+      summary: '[Planeado · API-9] Restablecer la contraseña con el código'
+      description: Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
+      x-estado: planeado
+      x-ticket: API-9
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Contraseña actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Datos inválidos o código incorrecto o vencido (`INVALID_RESET_CODE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Demasiados intentos con el código (`RESET_ATTEMPTS_EXCEEDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # Mi cuenta (API-10)
+  # ==========================================================================
+
+  /api/me:
+    get:
+      tags:
+        - Mi cuenta
+      summary: Consultar mi cuenta
+      description: Datos de la cuenta y datos personales del usuario que inició sesión.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cuenta del usuario.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MyAccount'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: La cuenta ya no existe (`ACCOUNT_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Editar mis datos personales
+      description: Solo cambia los campos que se mandan. El correo no se cambia por aquí.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+            example:
+              name: Ana
+              lastname_p: Pérez
+              phone: '5512345678'
+      responses:
+        '200':
+          description: Datos actualizados.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PersonalData'
+        '400':
+          description: |
+            Sin campos (`ACCOUNT_INVALID_INPUT`), teléfono que no tiene 10 dígitos
+            (`ACCOUNT_INVALID_PHONE`) u otro dato inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/password:
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Cambiar mi contraseña
+      description: Valida la contraseña actual y cierra las demás sesiones; la actual sigue abierta.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+      responses:
+        '200':
+          description: Contraseña actualizada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          password_changed:
+                            type: boolean
+                            example: true
+                          other_sessions_revoked:
+                            type: boolean
+                            example: true
+        '400':
+          description: |
+            La actual es incorrecta (`ACCOUNT_INCORRECT_CURRENT_PASSWORD`), la nueva es igual a la
+            actual (`ACCOUNT_SAME_PASSWORD`) o no cumple las reglas (`ACCOUNT_INVALID_NEW_PASSWORD`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/addresses:
+    get:
+      tags:
+        - Mi cuenta
+      summary: Listar mis direcciones
+      description: Solo las activas; la principal va primero.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Direcciones guardadas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ClientAddress'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Mi cuenta
+      summary: Guardar una dirección
+      description: Si es la primera o llega con `is_main` en `true`, queda como principal.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientAddressInput'
+      responses:
+        '201':
+          description: Dirección guardada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ClientAddress'
+        '400':
+          description: Falta un campo obligatorio (`ACCOUNT_INVALID_INPUT`) o la coordenada está fuera de rango (`ACCOUNT_INVALID_COORDINATE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/addresses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Mi cuenta
+      summary: Ver una dirección
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: La dirección.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ClientAddress'
+        '400':
+          description: Id inválido (`ACCOUNT_INVALID_ADDRESS_ID`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Editar una dirección
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressUpdate'
+      responses:
+        '200':
+          description: Dirección actualizada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ClientAddress'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Mi cuenta
+      summary: Borrar una dirección
+      description: Baja lógica. Si era la principal, la siguiente pasa a ser principal.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dirección borrada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          address_id:
+                            type: string
+                          active:
+                            type: boolean
+                            example: false
+                          was_main:
+                            type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/me/addresses/{id}/main:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags:
+        - Mi cuenta
+      summary: Marcar una dirección como principal
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: La dirección ahora es la principal.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          address_id:
+                            type: string
+                          is_main:
+                            type: boolean
+                            example: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # Archivos (API-8)
+  # ==========================================================================
+
+  /api/files/upload:
     post:
       tags:
         - Archivos
-      summary: '[Planeado · API-8] Subir un archivo'
+      summary: Subir un archivo
       description: |
-        Guarda el archivo y regresa su `file_key`. Ese valor es el que se manda después en los
-        demás endpoints (fotos de una solicitud, evidencias, portafolio). Imágenes JPG, PNG o WEBP
-        y PDF; máximo 10 MB.
-      x-estado: planeado
-      x-ticket: API-8
+        Guarda el archivo y regresa su `file_key`, que es lo que se manda después en los demás
+        endpoints (fotos de una solicitud, evidencias, portafolio). La llave lleva el id de quien
+        lo subió; solo esa persona o el administrador lo pueden borrar.
+
+        | `category` | Tipos | Máximo |
+        |---|---|---|
+        | `documents` | PDF, JPG, PNG, WEBP | 10 MB |
+        | `photos` | JPG, PNG, WEBP | 5 MB |
+        | `evidences` | JPG, PNG, WEBP, PDF, MP4 | 25 MB |
+
+        Los `documents` son documentos de verificación: solo el administrador puede verlos o borrarlos.
+        Además del tipo declarado, se revisa que el contenido del archivo corresponda a ese tipo.
       security:
         - bearerAuth: []
       requestBody:
@@ -1108,13 +1236,12 @@ paths:
               type: object
               required:
                 - file
-                - purpose
               properties:
                 file:
                   type: string
                   format: binary
-                purpose:
-                  $ref: '#/components/schemas/FilePurpose'
+                category:
+                  $ref: '#/components/schemas/FileCategory'
       responses:
         '201':
           description: Archivo guardado.
@@ -1126,17 +1253,175 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/UploadedFile'
+                        $ref: '#/components/schemas/StoredFile'
         '400':
-          description: Falta el archivo o el tipo no está permitido (`FILE_TYPE_NOT_ALLOWED`).
+          description: |
+            Falta el archivo, la categoría no es válida, el tipo o el tamaño no se permiten, o el
+            contenido no corresponde al tipo declarado (`FILE_CONTENT_MISMATCH`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '413':
-          description: El archivo supera el tamaño máximo (`PAYLOAD_TOO_LARGE`).
+
+  /api/files/signed-url:
+    post:
+      tags:
+        - Archivos
+      summary: Pedir un enlace temporal para ver o descargar un archivo
+      description: Los documentos de verificación solo los puede pedir el administrador.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file_key
+              properties:
+                file_key:
+                  type: string
+                expires_in_minutes:
+                  type: integer
+                  minimum: 1
+                  maximum: 1440
+                  default: 30
+                disposition:
+                  type: string
+                  enum:
+                    - inline
+                    - attachment
+                  default: inline
+                download_name:
+                  type: string
+                  description: Nombre con el que se descarga el archivo.
+      responses:
+        '200':
+          description: Enlace firmado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/SignedUrl'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Es un documento de verificación y no eres administrador, o la llave intenta salir del almacenamiento.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/files/download:
+    get:
+      tags:
+        - Archivos
+      summary: Descargar un archivo con su enlace firmado
+      description: No pide token; la firma del enlace es la que da acceso mientras esté vigente.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/FileKeyQuery'
+        - $ref: '#/components/parameters/FileExpiresQuery'
+        - $ref: '#/components/parameters/FileSignatureQuery'
+        - $ref: '#/components/parameters/FileDispositionQuery'
+      responses:
+        '200':
+          description: El archivo.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: La firma no es válida o el enlace ya venció.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Ruta de archivo no permitida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/files/view:
+    get:
+      tags:
+        - Archivos
+      summary: Mostrar un archivo en el navegador con su enlace firmado
+      description: Igual que `/api/files/download`, pero siempre lo muestra en lugar de descargarlo.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/FileKeyQuery'
+        - $ref: '#/components/parameters/FileExpiresQuery'
+        - $ref: '#/components/parameters/FileSignatureQuery'
+        - $ref: '#/components/parameters/FileDispositionQuery'
+      responses:
+        '200':
+          description: El archivo.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: La firma no es válida o el enlace ya venció.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/files:
+    delete:
+      tags:
+        - Archivos
+      summary: Borrar un archivo
+      description: Solo quien lo subió o el administrador. Los documentos de verificación, solo el administrador.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file_key
+              properties:
+                file_key:
+                  type: string
+      responses:
+        '200':
+          description: Archivo borrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: El archivo no es tuyo (`FILE_DELETE_FORBIDDEN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: El archivo no existe (`FILE_NOT_FOUND`).
           content:
             application/json:
               schema:
@@ -1685,7 +1970,7 @@ paths:
       tags:
         - Sucursales
       summary: '[Planeado · API-20] Agregar un trabajo al portafolio'
-      description: Las fotos se suben antes con `POST /api/files` (`purpose` = `portafolio`).
+      description: Las fotos se suben antes con `POST /api/files/upload` (`category` = `photos`).
       x-estado: planeado
       x-ticket: API-20
       security:
@@ -2381,7 +2666,7 @@ paths:
       description: |
         El cliente puede cancelar mientras esté `pendiente` sin dar motivo. Después de aceptada,
         quien cancele debe dar motivo; el proveedor además puede adjuntar evidencia (subida antes
-        con `POST /api/files`, `purpose` = `evidencia_cancelacion`). Sin evidencia, el proveedor
+        con `POST /api/files/upload`, `category` = `evidences`). Sin evidencia, el proveedor
         recibe la penalización del módulo 12.
       x-estado: planeado
       x-ticket: API-31
@@ -2466,6 +2751,39 @@ components:
         type: string
         pattern: '^[1-9]\d{0,17}$'
       description: Identificador BIGINT como texto.
+
+    FileKeyQuery:
+      in: query
+      name: key
+      required: true
+      schema:
+        type: string
+      description: El `file_key` firmado.
+
+    FileExpiresQuery:
+      in: query
+      name: expires
+      required: true
+      schema:
+        type: integer
+      description: Vencimiento del enlace, en milisegundos desde 1970.
+
+    FileSignatureQuery:
+      in: query
+      name: signature
+      required: true
+      schema:
+        type: string
+
+    FileDispositionQuery:
+      in: query
+      name: disposition
+      schema:
+        type: string
+        enum:
+          - inline
+          - attachment
+      description: Con la que se firmó el enlace.
 
     Page:
       in: query
@@ -2754,48 +3072,6 @@ components:
         message:
           type: string
           example: Sesión cerrada correctamente.
-
-    ForgotPasswordRequest:
-      type: object
-      required:
-        - email
-      properties:
-        email:
-          type: string
-          format: email
-          maxLength: 255
-
-    ResetPasswordRequest:
-      type: object
-      required:
-        - email
-        - code
-        - newPassword
-      properties:
-        email:
-          type: string
-          format: email
-          maxLength: 255
-        code:
-          type: string
-          pattern: '^[0-9]{6}$'
-          minLength: 6
-          maxLength: 6
-        newPassword:
-          type: string
-          format: password
-          minLength: 8
-          maxLength: 72
-
-    RecoveryMessageResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: true
-        message:
-          type: string
-          example: Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña.
 
     CreateTestUserRequest:
       type: object
@@ -3139,65 +3415,89 @@ components:
     # Mi cuenta
     # ------------------------------------------------------------------------
 
-    PersonalData:
+    EmailRequest:
       type: object
+      required:
+        - email
       properties:
+        email:
+          type: string
+          format: email
+          example: ana@correo.com
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - email
+        - code
+        - new_password
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          example: '482913'
+        new_password:
+          type: string
+          minLength: 8
+          maxLength: 72
+
+    Profile:
+      type: object
+      required:
+        - id
+        - email
+        - role
+        - state
+        - name
+        - lastname_p
+      properties:
+        id:
+          type: string
+          example: '12'
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+        state:
+          $ref: '#/components/schemas/UserState'
         name:
           type: string
+          example: Ana
         lastname_p:
           type: string
+          example: Pérez
         lastname_m:
           type:
             - string
             - 'null'
+          example: López
         birth_date:
           type:
             - string
             - 'null'
           format: date
+          example: '2000-05-10'
         phone:
           type:
             - string
             - 'null'
+          example: '5512345678'
 
-    MyAccountResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-        message:
-          type: string
-        data:
-          type: object
-          properties:
-            user:
-              type: object
-              properties:
-                id:
-                  type: string
-                email:
-                  type: string
-                  format: email
-                role:
-                  type:
-                    - string
-                    - 'null'
-                state:
-                  type: string
-            personal_data:
-              oneOf:
-                - $ref: '#/components/schemas/PersonalData'
-                - type: 'null'
-
-    PersonalDataUpdate:
+    ProfileUpdate:
       type: object
       minProperties: 1
       properties:
         name:
           type: string
+          minLength: 1
           maxLength: 100
         lastname_p:
           type: string
+          minLength: 1
           maxLength: 100
         lastname_m:
           type:
@@ -3205,54 +3505,105 @@ components:
             - 'null'
           maxLength: 100
         birth_date:
-          type:
-            - string
-            - 'null'
+          type: string
           format: date
         phone:
-          type:
-            - string
-            - 'null'
-          maxLength: 30
+          type: string
+          pattern: '^\d{10}$'
 
-    ChangePassword:
+    PasswordChange:
       type: object
       required:
-        - currentPassword
-        - newPassword
+        - current_password
+        - new_password
       properties:
-        currentPassword:
+        current_password:
           type: string
-          format: password
-        newPassword:
+        new_password:
           type: string
-          format: password
           minLength: 8
           maxLength: 72
 
-    Address:
+    AddressInput:
       type: object
+      required:
+        - street
+        - num_ext
+        - colony
+        - municipality
+        - state
+        - postal_code
+        - latitude
+        - longitude
       properties:
-        id:
-          type: string
         alias:
-          type:
-            - string
-            - 'null'
+          type: string
+          maxLength: 100
+          example: Casa
+        reference:
+          type: string
+          maxLength: 255
+          example: Portón negro, junto a la tienda.
+        street:
+          type: string
+          maxLength: 255
+          example: Av. Juárez
+        num_ext:
+          type: string
+          maxLength: 50
+          example: '120'
+        num_int:
+          type: string
+          maxLength: 50
+          example: 3B
+        colony:
+          type: string
+          maxLength: 150
+          example: Centro
+        municipality:
+          type: string
+          maxLength: 150
+          example: Cuauhtémoc
+        state:
+          type: string
+          maxLength: 150
+          example: Ciudad de México
+        postal_code:
+          type: string
+          pattern: '^\d{5}$'
+          example: '06000'
+        country:
+          type: string
+          default: México
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          example: 19.4326
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+          example: -99.1332
         is_main:
           type: boolean
+          default: false
+
+    AddressUpdate:
+      type: object
+      minProperties: 1
+      description: Los mismos campos de `AddressInput`, todos opcionales.
+      properties:
+        alias:
+          type: string
         reference:
-          type:
-            - string
-            - 'null'
+          type: string
         street:
           type: string
         num_ext:
           type: string
         num_int:
-          type:
-            - string
-            - 'null'
+          type: string
         colony:
           type: string
         municipality:
@@ -3261,21 +3612,75 @@ components:
           type: string
         postal_code:
           type: string
+          pattern: '^\d{5}$'
         country:
           type: string
         latitude:
-          oneOf:
-            - type: number
-            - type: string
-            - type: 'null'
+          type: number
         longitude:
+          type: number
+
+    Address:
+      allOf:
+        - type: object
+          required:
+            - id
+          properties:
+            id:
+              type: string
+              example: '31'
+        - $ref: '#/components/schemas/AddressInput'
+
+    MyAccount:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              example: '16'
+            email:
+              type: string
+              format: email
+            role:
+              $ref: '#/components/schemas/UserRole'
+            state:
+              $ref: '#/components/schemas/UserState'
+        personal_data:
+          description: '`null` si la cuenta todavía no tiene datos personales.'
           oneOf:
-            - type: number
-            - type: string
+            - $ref: '#/components/schemas/PersonalData'
             - type: 'null'
 
-    AddressCreate:
+    PersonalData:
       type: object
+      properties:
+        name:
+          type: string
+          example: Ana
+        lastname_p:
+          type: string
+          example: Pérez
+        lastname_m:
+          type:
+            - string
+            - 'null'
+        birth_date:
+          type:
+            - string
+            - 'null'
+          format: date
+          example: '2000-05-10'
+        phone:
+          type:
+            - string
+            - 'null'
+          example: '5512345678'
+
+    ClientAddressInput:
+      type: object
+      description: Igual que `AddressInput`, pero en las direcciones del cliente las coordenadas son opcionales.
       required:
         - street
         - num_ext
@@ -3285,14 +3690,11 @@ components:
         - postal_code
       properties:
         alias:
-          type:
-            - string
-            - 'null'
+          type: string
           maxLength: 100
+          example: Casa
         reference:
-          type:
-            - string
-            - 'null'
+          type: string
         street:
           type: string
           maxLength: 255
@@ -3300,9 +3702,8 @@ components:
           type: string
           maxLength: 50
         num_int:
-          type:
-            - string
-            - 'null'
+          type: string
+          maxLength: 50
         colony:
           type: string
           maxLength: 150
@@ -3319,26 +3720,33 @@ components:
           type: string
           default: México
         latitude:
-          oneOf:
-            - type: number
-            - type: string
-            - type: 'null'
+          type:
+            - number
+            - 'null'
+          minimum: -90
+          maximum: 90
         longitude:
-          oneOf:
-            - type: number
-            - type: string
-            - type: 'null'
+          type:
+            - number
+            - 'null'
+          minimum: -180
+          maximum: 180
         is_main:
           type: boolean
+          default: false
 
-    AddressUpdate:
+    ClientAddress:
       type: object
-      minProperties: 1
       properties:
+        id:
+          type: string
+          example: '31'
         alias:
           type:
             - string
             - 'null'
+        is_main:
+          type: boolean
         reference:
           type:
             - string
@@ -3362,29 +3770,79 @@ components:
         country:
           type: string
         latitude:
-          oneOf:
-            - type: number
-            - type: string
-            - type: 'null'
+          type:
+            - number
+            - 'null'
+          example: 19.4326
         longitude:
-          oneOf:
-            - type: number
-            - type: string
-            - type: 'null'
+          type:
+            - number
+            - 'null'
+          example: -99.1332
 
     # ------------------------------------------------------------------------
     # Archivos
     # ------------------------------------------------------------------------
 
-    FilePurpose:
+    FileCategory:
       type: string
-      description: Para qué se usará el archivo; define qué tipos y quién puede verlo.
+      description: Define qué tipos y tamaños se aceptan. `documents` son documentos de verificación (solo los ve el administrador).
       enum:
-        - foto_perfil
-        - portafolio
-        - solicitud
-        - evidencia_cancelacion
-        - cierre_servicio
+        - documents
+        - photos
+        - evidences
+      default: documents
+
+    StoredFile:
+      type: object
+      required:
+        - file_key
+        - original_name
+        - mime_type
+        - size_bytes
+        - file_hash
+        - category
+        - is_verification
+        - uploaded_at
+      properties:
+        file_key:
+          type: string
+          description: Ruta del archivo; incluye el id de quien lo subió.
+          example: photos/16/2026/11/0339630c-b10f-43ad-930b-3504ab442d6a-foto.png
+        original_name:
+          type: string
+          example: foto.png
+        mime_type:
+          type: string
+          example: image/png
+        size_bytes:
+          type: integer
+          example: 284133
+        file_hash:
+          type: string
+          description: SHA-256 del contenido.
+        category:
+          $ref: '#/components/schemas/FileCategory'
+        is_verification:
+          type: boolean
+        uploaded_at:
+          type: string
+          format: date-time
+
+    SignedUrl:
+      type: object
+      properties:
+        file_key:
+          type: string
+        signed_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        expires_in_seconds:
+          type: integer
+          example: 1800
 
     UploadedFile:
       type: object
@@ -4113,11 +4571,11 @@ components:
           type: string
           description: Dirección guardada. Manda esta o `address`.
         address:
-          $ref: '#/components/schemas/AddressCreate'
+          $ref: '#/components/schemas/AddressInput'
         attachment_keys:
           type: array
           maxItems: 5
-          description: '`file_key` de fotos subidas con `purpose` = `solicitud`.'
+          description: '`file_key` de fotos subidas con `category` = `photos`.'
           items:
             type: string
         scheduled_at:
@@ -4277,7 +4735,7 @@ components:
           type: number
         closing_keys:
           type: array
-          description: Fotos del cierre (`purpose` = `cierre_servicio`), solo al pasar a `completada`.
+          description: Fotos del cierre (`category` = `evidences`), solo al pasar a `completada`.
           items:
             type: string
 

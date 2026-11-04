@@ -18,6 +18,10 @@ import accountRoutes from './routes/account.routes.ts';
 import passwordRecoveryRoutes from './routes/password-recovery.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
+import { setupDomainEventObservers } from './events/index.ts';
+
+// Inicializar observadores del patrón Observer (Módulos 1 y 5)
+setupDomainEventObservers();
 
 const app = express();
 
@@ -61,8 +65,8 @@ app.use('/api/auth', passwordRecoveryRoutes);
 //Categorias
 app.use('/api/categories', categoriesRoutes);
 
-//Cuentas
-app.use('/api/account', accountRoutes);
+// Mi cuenta (datos personales, contraseña y direcciones del usuario que inició sesión)
+app.use('/api/me', accountRoutes);
 
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {
