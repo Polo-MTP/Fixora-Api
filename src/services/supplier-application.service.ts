@@ -23,6 +23,7 @@ import { AppError, BadRequestError, ConflictError, NotFoundError } from '../erro
 import { eventBus } from '../events/index.ts';
 import { SupplierVerificationEvent } from '../events/events/domain-events.ts';
 import { storageService } from './storage.service.ts';
+import { sendSupplierApplicationReceivedEmail } from './email.service.ts';
 import type {
   CreateSupplierApplicationInput,
   ReplaceDocumentInput,
@@ -535,6 +536,23 @@ export class SupplierApplicationService {
       );
     } catch (eventErr) {
       console.error('[SupplierApplicationService] Error al emitir evento de dominio:', eventErr);
+    }
+
+    // 7. Enviar correo de confirmación de solicitud recibida (API-17)
+    try {
+      await sendSupplierApplicationReceivedEmail({
+        email: result.email,
+        managerName: result.managerName,
+        businessName: result.businessName,
+        applicationId: result.applicationId,
+        supplierType: result.supplierType,
+        applicationDate: result.applicationDate,
+      });
+    } catch (emailErr) {
+      console.warn(
+        '[SupplierApplicationService] No fue posible enviar el correo de confirmación de solicitud:',
+        emailErr,
+      );
     }
 
     return {
