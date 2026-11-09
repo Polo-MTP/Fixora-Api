@@ -818,19 +818,21 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
-  # Planeados · Módulos 1 y 2 (cliente): recuperación de contraseña y Mi cuenta
+  # Recuperación de contraseña (API-9)
   # ==========================================================================
 
   /api/auth/forgot-password:
     post:
       tags:
         - Autenticación
-      summary: '[Planeado · API-9] Pedir código para restablecer la contraseña'
+      summary: Pedir código para restablecer la contraseña
       description: |
-        Envía al correo un código de 6 dígitos con vigencia corta. Responde igual exista o no la
-        cuenta, para no revelar qué correos están registrados.
-      x-estado: planeado
-      x-ticket: API-9
+        Envía al correo un código de 6 dígitos que vence en 10 minutos. Responde lo mismo exista o
+        no la cuenta, para no revelar qué correos están registrados. Si se vuelve a pedir antes de
+        1 minuto, responde igual pero no manda otro correo.
+
+        El código se guarda en Redis (con su hash, nunca en claro); si Redis no está disponible
+        responde 503.
       security: []
       requestBody:
         required: true
@@ -845,10 +847,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
+              example:
+                success: true
+                message: Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña.
         '400':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          description: Se pidió otro código antes de tiempo (`RESEND_COOLDOWN`).
+          description: Falta el correo (`INVALID_INPUT`) o no es válido (`INVALID_EMAIL`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: |
+            Redis no está disponible (`RECOVERY_SERVICE_UNAVAILABLE`), el correo no está configurado
+            (`RECOVERY_EMAIL_NOT_CONFIGURED`) o no se pudo enviar (`RECOVERY_EMAIL_FAILED`).
           content:
             application/json:
               schema:
@@ -858,10 +869,10 @@ paths:
     post:
       tags:
         - Autenticación
-      summary: '[Planeado · API-9] Restablecer la contraseña con el código'
-      description: Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta.
-      x-estado: planeado
-      x-ticket: API-9
+      summary: Restablecer la contraseña con el código
+      description: |
+        Cambia la contraseña y cierra todas las sesiones abiertas de la cuenta. El código se usa una
+        sola vez; al 5.º intento fallido se invalida y hay que pedir otro.
       security: []
       requestBody:
         required: true
@@ -877,30 +888,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
         '400':
-          description: Datos inválidos o código incorrecto o vencido (`INVALID_RESET_CODE`).
+          description: |
+            Faltan datos (`INVALID_INPUT`), el código no es de 6 dígitos o es incorrecto
+            (`INVALID_RECOVERY_CODE`), ya venció o se usó (`RECOVERY_CODE_EXPIRED`), la contraseña
+            no cumple las reglas (`INVALID_PASSWORD`) o es igual a la anterior (`PASSWORD_REUSED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Hay otro restablecimiento en curso para ese correo (`RECOVERY_IN_PROGRESS`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Demasiados intentos con el código (`RESET_ATTEMPTS_EXCEEDED`).
+          description: Se superó el límite de intentos (`RECOVERY_ATTEMPTS_EXCEEDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Redis no está disponible (`RECOVERY_SERVICE_UNAVAILABLE`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # ==========================================================================
+  # Mi cuenta (API-10)
+  # ==========================================================================
+
   /api/me:
     get:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Consultar mi perfil'
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Consultar mi cuenta
+      description: Datos de la cuenta y datos personales del usuario que inició sesión.
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Perfil del usuario que inició sesión.
+          description: Cuenta del usuario.
           content:
             application/json:
               schema:
@@ -909,16 +938,20 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Profile'
+                        $ref: '#/components/schemas/MyAccount'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: La cuenta ya no existe (`ACCOUNT_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Editar mis datos personales'
-      description: El correo no se cambia por aquí.
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Editar mis datos personales
+      description: Solo cambia los campos que se mandan. El correo no se cambia por aquí.
       security:
         - bearerAuth: []
       requestBody:
@@ -927,6 +960,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ProfileUpdate'
+            example:
+              name: Ana
+              lastname_p: Pérez
+              phone: '5512345678'
       responses:
         '200':
           description: Datos actualizados.
@@ -938,9 +975,15 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Profile'
+                        $ref: '#/components/schemas/PersonalData'
         '400':
-          $ref: '#/components/responses/ValidationError'
+          description: |
+            Sin campos (`ACCOUNT_INVALID_INPUT`), teléfono que no tiene 10 dígitos
+            (`ACCOUNT_INVALID_PHONE`) u otro dato inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -948,10 +991,8 @@ paths:
     patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Cambiar mi contraseña'
-      description: Cierra las demás sesiones; la actual sigue abierta.
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Cambiar mi contraseña
+      description: Valida la contraseña actual y cierra las demás sesiones; la actual sigue abierta.
       security:
         - bearerAuth: []
       requestBody:
@@ -966,9 +1007,23 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          password_changed:
+                            type: boolean
+                            example: true
+                          other_sessions_revoked:
+                            type: boolean
+                            example: true
         '400':
-          description: La contraseña nueva no cumple las reglas, o la actual es incorrecta (`INVALID_CURRENT_PASSWORD`).
+          description: |
+            La actual es incorrecta (`ACCOUNT_INCORRECT_CURRENT_PASSWORD`), la nueva es igual a la
+            actual (`ACCOUNT_SAME_PASSWORD`) o no cumple las reglas (`ACCOUNT_INVALID_NEW_PASSWORD`).
           content:
             application/json:
               schema:
@@ -980,10 +1035,8 @@ paths:
     get:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Listar mis direcciones'
+      summary: Listar mis direcciones
       description: Solo las activas; la principal va primero.
-      x-estado: planeado
-      x-ticket: API-10
       security:
         - bearerAuth: []
       responses:
@@ -999,16 +1052,14 @@ paths:
                       data:
                         type: array
                         items:
-                          $ref: '#/components/schemas/Address'
+                          $ref: '#/components/schemas/ClientAddress'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Guardar una dirección'
+      summary: Guardar una dirección
       description: Si es la primera o llega con `is_main` en `true`, queda como principal.
-      x-estado: planeado
-      x-ticket: API-10
       security:
         - bearerAuth: []
       requestBody:
@@ -1016,7 +1067,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddressInput'
+              $ref: '#/components/schemas/ClientAddressInput'
       responses:
         '201':
           description: Dirección guardada.
@@ -1028,21 +1079,55 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Address'
+                        $ref: '#/components/schemas/ClientAddress'
         '400':
-          $ref: '#/components/responses/ValidationError'
+          description: Falta un campo obligatorio (`ACCOUNT_INVALID_INPUT`) o la coordenada está fuera de rango (`ACCOUNT_INVALID_COORDINATE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
   /api/me/addresses/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Mi cuenta
+      summary: Ver una dirección
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: La dirección.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ClientAddress'
+        '400':
+          description: Id inválido (`ACCOUNT_INVALID_ADDRESS_ID`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Editar una dirección'
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Editar una dirección
       security:
         - bearerAuth: []
       requestBody:
@@ -1062,20 +1147,22 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Address'
+                        $ref: '#/components/schemas/ClientAddress'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     delete:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Borrar una dirección'
-      description: Baja lógica. Si era la principal, la más reciente pasa a ser principal.
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Borrar una dirección
+      description: Baja lógica. Si era la principal, la siguiente pasa a ser principal.
       security:
         - bearerAuth: []
       responses:
@@ -1084,21 +1171,36 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessEnvelope'
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          address_id:
+                            type: string
+                          active:
+                            type: boolean
+                            example: false
+                          was_main:
+                            type: boolean
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/me/addresses/{id}/main:
     parameters:
       - $ref: '#/components/parameters/Id'
-    post:
+    patch:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-10] Marcar una dirección como principal'
-      x-estado: planeado
-      x-ticket: API-10
+      summary: Marcar una dirección como principal
       security:
         - bearerAuth: []
       responses:
@@ -1112,27 +1214,44 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/Address'
+                        type: object
+                        properties:
+                          address_id:
+                            type: string
+                          is_main:
+                            type: boolean
+                            example: true
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: No existe o no es tuya (`ACCOUNT_ADDRESS_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # ==========================================================================
-  # Planeados · Archivos
+  # Archivos (API-8)
   # ==========================================================================
 
-  /api/files:
+  /api/files/upload:
     post:
       tags:
         - Archivos
-      summary: '[Planeado · API-8] Subir un archivo'
+      summary: Subir un archivo
       description: |
-        Guarda el archivo y regresa su `file_key`. Ese valor es el que se manda después en los
-        demás endpoints (fotos de una solicitud, evidencias, portafolio). Imágenes JPG, PNG o WEBP
-        y PDF; máximo 10 MB.
-      x-estado: planeado
-      x-ticket: API-8
+        Guarda el archivo y regresa su `file_key`, que es lo que se manda después en los demás
+        endpoints (fotos de una solicitud, evidencias, portafolio). La llave lleva el id de quien
+        lo subió; solo esa persona o el administrador lo pueden borrar.
+
+        | `category` | Tipos | Máximo |
+        |---|---|---|
+        | `documents` | PDF, JPG, PNG, WEBP | 10 MB |
+        | `photos` | JPG, PNG, WEBP | 5 MB |
+        | `evidences` | JPG, PNG, WEBP, PDF, MP4 | 25 MB |
+
+        Los `documents` son documentos de verificación: solo el administrador puede verlos o borrarlos.
+        Además del tipo declarado, se revisa que el contenido del archivo corresponda a ese tipo.
       security:
         - bearerAuth: []
       requestBody:
@@ -1143,13 +1262,12 @@ paths:
               type: object
               required:
                 - file
-                - purpose
               properties:
                 file:
                   type: string
                   format: binary
-                purpose:
-                  $ref: '#/components/schemas/FilePurpose'
+                category:
+                  $ref: '#/components/schemas/FileCategory'
       responses:
         '201':
           description: Archivo guardado.
@@ -1161,17 +1279,175 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/UploadedFile'
+                        $ref: '#/components/schemas/StoredFile'
         '400':
-          description: Falta el archivo o el tipo no está permitido (`FILE_TYPE_NOT_ALLOWED`).
+          description: |
+            Falta el archivo, la categoría no es válida, el tipo o el tamaño no se permiten, o el
+            contenido no corresponde al tipo declarado (`FILE_CONTENT_MISMATCH`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '413':
-          description: El archivo supera el tamaño máximo (`PAYLOAD_TOO_LARGE`).
+
+  /api/files/signed-url:
+    post:
+      tags:
+        - Archivos
+      summary: Pedir un enlace temporal para ver o descargar un archivo
+      description: Los documentos de verificación solo los puede pedir el administrador.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file_key
+              properties:
+                file_key:
+                  type: string
+                expires_in_minutes:
+                  type: integer
+                  minimum: 1
+                  maximum: 1440
+                  default: 30
+                disposition:
+                  type: string
+                  enum:
+                    - inline
+                    - attachment
+                  default: inline
+                download_name:
+                  type: string
+                  description: Nombre con el que se descarga el archivo.
+      responses:
+        '200':
+          description: Enlace firmado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/SignedUrl'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Es un documento de verificación y no eres administrador, o la llave intenta salir del almacenamiento.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/files/download:
+    get:
+      tags:
+        - Archivos
+      summary: Descargar un archivo con su enlace firmado
+      description: No pide token; la firma del enlace es la que da acceso mientras esté vigente.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/FileKeyQuery'
+        - $ref: '#/components/parameters/FileExpiresQuery'
+        - $ref: '#/components/parameters/FileSignatureQuery'
+        - $ref: '#/components/parameters/FileDispositionQuery'
+      responses:
+        '200':
+          description: El archivo.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: La firma no es válida o el enlace ya venció.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Ruta de archivo no permitida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/files/view:
+    get:
+      tags:
+        - Archivos
+      summary: Mostrar un archivo en el navegador con su enlace firmado
+      description: Igual que `/api/files/download`, pero siempre lo muestra en lugar de descargarlo.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/FileKeyQuery'
+        - $ref: '#/components/parameters/FileExpiresQuery'
+        - $ref: '#/components/parameters/FileSignatureQuery'
+        - $ref: '#/components/parameters/FileDispositionQuery'
+      responses:
+        '200':
+          description: El archivo.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: La firma no es válida o el enlace ya venció.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/files:
+    delete:
+      tags:
+        - Archivos
+      summary: Borrar un archivo
+      description: Solo quien lo subió o el administrador. Los documentos de verificación, solo el administrador.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file_key
+              properties:
+                file_key:
+                  type: string
+      responses:
+        '200':
+          description: Archivo borrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: El archivo no es tuyo (`FILE_DELETE_FORBIDDEN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: El archivo no existe (`FILE_NOT_FOUND`).
           content:
             application/json:
               schema:
@@ -1280,15 +1556,13 @@ paths:
     get:
       tags:
         - Proveedores
-      summary: '[Planeado · API-13] Ver el estado de mi solicitud'
+      summary: 'Ver el estado de mi solicitud (API-13)'
       description: |
         Para el sitio web del proveedor mientras está en revisión. Incluye el resultado y los
-        comentarios de cada documento.
-
-        Nota para API-13: hoy el login responde 403 `ACCOUNT_NOT_ACTIVE` a las cuentas
-        `por_aprobar`. Para usar este endpoint, el login debe permitirles una sesión limitada a la
-        consulta y corrección de su solicitud.
-      x-estado: planeado
+        comentarios de cada documento. Las cuentas `por_aprobar` reciben una sesión limitada a
+        consultar esta solicitud y usar el endpoint para reemplazar documentos observados. No
+        pueden acceder a los demás recursos protegidos de la API.
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1306,6 +1580,8 @@ paths:
                         $ref: '#/components/schemas/SupplierApplication'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1373,8 +1649,8 @@ paths:
     get:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Listar solicitudes de proveedor'
-      x-estado: planeado
+      summary: 'Listar solicitudes de proveedor (API-13)'
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1417,9 +1693,9 @@ paths:
     get:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Ver el desglose de una solicitud'
+      summary: 'Ver el desglose de una solicitud (API-13)'
       description: Encargado, negocio, locales, empleados y documentos con su revisión.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1448,12 +1724,12 @@ paths:
     post:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Resolver una solicitud'
+      summary: 'Resolver una solicitud (API-13)'
       description: |
         `aprobada` solo si todos los documentos están aprobados; activa la cuenta. `rechazada` y
         `documentacion_incompleta` piden comentario. Emite el evento «solicitud resuelta» y se
         avisa al proveedor por correo.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1496,9 +1772,9 @@ paths:
     patch:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Aprobar o rechazar un documento'
+      summary: 'Aprobar o rechazar un documento (API-13)'
       description: Emite el evento «documento aprobado o rechazado».
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1528,6 +1804,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: La solicitud asociada ya fue resuelta y no admite cambios en sus documentos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/admin/staff:
     post:
@@ -1720,7 +2002,7 @@ paths:
       tags:
         - Sucursales
       summary: '[Planeado · API-20] Agregar un trabajo al portafolio'
-      description: Las fotos se suben antes con `POST /api/files` (`purpose` = `portafolio`).
+      description: Las fotos se suben antes con `POST /api/files/upload` (`category` = `photos`).
       x-estado: planeado
       x-ticket: API-20
       security:
@@ -2416,7 +2698,7 @@ paths:
       description: |
         El cliente puede cancelar mientras esté `pendiente` sin dar motivo. Después de aceptada,
         quien cancele debe dar motivo; el proveedor además puede adjuntar evidencia (subida antes
-        con `POST /api/files`, `purpose` = `evidencia_cancelacion`). Sin evidencia, el proveedor
+        con `POST /api/files/upload`, `category` = `evidences`). Sin evidencia, el proveedor
         recibe la penalización del módulo 12.
       x-estado: planeado
       x-ticket: API-31
@@ -2501,6 +2783,39 @@ components:
         type: string
         pattern: '^[1-9]\d{0,17}$'
       description: Identificador BIGINT como texto.
+
+    FileKeyQuery:
+      in: query
+      name: key
+      required: true
+      schema:
+        type: string
+      description: El `file_key` firmado.
+
+    FileExpiresQuery:
+      in: query
+      name: expires
+      required: true
+      schema:
+        type: integer
+      description: Vencimiento del enlace, en milisegundos desde 1970.
+
+    FileSignatureQuery:
+      in: query
+      name: signature
+      required: true
+      schema:
+        type: string
+
+    FileDispositionQuery:
+      in: query
+      name: disposition
+      schema:
+        type: string
+        enum:
+          - inline
+          - attachment
+      description: Con la que se firmó el enlace.
 
     Page:
       in: query
@@ -3348,19 +3663,218 @@ components:
               example: '31'
         - $ref: '#/components/schemas/AddressInput'
 
+    MyAccount:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              example: '16'
+            email:
+              type: string
+              format: email
+            role:
+              $ref: '#/components/schemas/UserRole'
+            state:
+              $ref: '#/components/schemas/UserState'
+        personal_data:
+          description: '`null` si la cuenta todavía no tiene datos personales.'
+          oneOf:
+            - $ref: '#/components/schemas/PersonalData'
+            - type: 'null'
+
+    PersonalData:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Ana
+        lastname_p:
+          type: string
+          example: Pérez
+        lastname_m:
+          type:
+            - string
+            - 'null'
+        birth_date:
+          type:
+            - string
+            - 'null'
+          format: date
+          example: '2000-05-10'
+        phone:
+          type:
+            - string
+            - 'null'
+          example: '5512345678'
+
+    ClientAddressInput:
+      type: object
+      description: Igual que `AddressInput`, pero en las direcciones del cliente las coordenadas son opcionales.
+      required:
+        - street
+        - num_ext
+        - colony
+        - municipality
+        - state
+        - postal_code
+      properties:
+        alias:
+          type: string
+          maxLength: 100
+          example: Casa
+        reference:
+          type: string
+        street:
+          type: string
+          maxLength: 255
+        num_ext:
+          type: string
+          maxLength: 50
+        num_int:
+          type: string
+          maxLength: 50
+        colony:
+          type: string
+          maxLength: 150
+        municipality:
+          type: string
+          maxLength: 150
+        state:
+          type: string
+          maxLength: 150
+        postal_code:
+          type: string
+          maxLength: 20
+        country:
+          type: string
+          default: México
+        latitude:
+          type:
+            - number
+            - 'null'
+          minimum: -90
+          maximum: 90
+        longitude:
+          type:
+            - number
+            - 'null'
+          minimum: -180
+          maximum: 180
+        is_main:
+          type: boolean
+          default: false
+
+    ClientAddress:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '31'
+        alias:
+          type:
+            - string
+            - 'null'
+        is_main:
+          type: boolean
+        reference:
+          type:
+            - string
+            - 'null'
+        street:
+          type: string
+        num_ext:
+          type: string
+        num_int:
+          type:
+            - string
+            - 'null'
+        colony:
+          type: string
+        municipality:
+          type: string
+        state:
+          type: string
+        postal_code:
+          type: string
+        country:
+          type: string
+        latitude:
+          type:
+            - number
+            - 'null'
+          example: 19.4326
+        longitude:
+          type:
+            - number
+            - 'null'
+          example: -99.1332
+
     # ------------------------------------------------------------------------
     # Archivos
     # ------------------------------------------------------------------------
 
-    FilePurpose:
+    FileCategory:
       type: string
-      description: Para qué se usará el archivo; define qué tipos y quién puede verlo.
+      description: Define qué tipos y tamaños se aceptan. `documents` son documentos de verificación (solo los ve el administrador).
       enum:
-        - foto_perfil
-        - portafolio
-        - solicitud
-        - evidencia_cancelacion
-        - cierre_servicio
+        - documents
+        - photos
+        - evidences
+      default: documents
+
+    StoredFile:
+      type: object
+      required:
+        - file_key
+        - original_name
+        - mime_type
+        - size_bytes
+        - file_hash
+        - category
+        - is_verification
+        - uploaded_at
+      properties:
+        file_key:
+          type: string
+          description: Ruta del archivo; incluye el id de quien lo subió.
+          example: photos/16/2026/11/0339630c-b10f-43ad-930b-3504ab442d6a-foto.png
+        original_name:
+          type: string
+          example: foto.png
+        mime_type:
+          type: string
+          example: image/png
+        size_bytes:
+          type: integer
+          example: 284133
+        file_hash:
+          type: string
+          description: SHA-256 del contenido.
+        category:
+          $ref: '#/components/schemas/FileCategory'
+        is_verification:
+          type: boolean
+        uploaded_at:
+          type: string
+          format: date-time
+
+    SignedUrl:
+      type: object
+      properties:
+        file_key:
+          type: string
+        signed_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        expires_in_seconds:
+          type: integer
+          example: 1800
 
     UploadedFile:
       type: object
@@ -3691,7 +4205,7 @@ components:
           format: email
         documents_pending:
           type: integer
-          description: Documentos sin revisar.
+          description: Documentos obligatorios faltantes o documentos que aún no están aprobados.
 
     SupplierApplication:
       allOf:
@@ -3750,7 +4264,7 @@ components:
         comment:
           type: string
           maxLength: 1000
-          description: Obligatorio al rechazar.
+          description: Obligatorio al rechazar. Máximo 1000 caracteres.
 
     ApplicationResolution:
       type: object
@@ -3766,7 +4280,7 @@ components:
         comments:
           type: string
           maxLength: 2000
-          description: Obligatorio para `rechazada` y `documentacion_incompleta`.
+          description: Obligatorio para `rechazada` y `documentacion_incompleta`. Máximo 2000 caracteres.
 
     StaffCreate:
       type: object
@@ -4093,7 +4607,7 @@ components:
         attachment_keys:
           type: array
           maxItems: 5
-          description: '`file_key` de fotos subidas con `purpose` = `solicitud`.'
+          description: '`file_key` de fotos subidas con `category` = `photos`.'
           items:
             type: string
         scheduled_at:
@@ -4253,7 +4767,7 @@ components:
           type: number
         closing_keys:
           type: array
-          description: Fotos del cierre (`purpose` = `cierre_servicio`), solo al pasar a `completada`.
+          description: Fotos del cierre (`category` = `evidences`), solo al pasar a `completada`.
           items:
             type: string
 

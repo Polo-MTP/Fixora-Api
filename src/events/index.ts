@@ -2,6 +2,7 @@ import { eventBus, EventBus } from './event-bus.ts';
 import { NotificationObserver } from './observers/notification.observer.ts';
 import { HistoryObserver } from './observers/history.observer.ts';
 import { RealTimeObserver } from './observers/realtime.observer.ts';
+import { EmailObserver } from './observers/email.observer.ts';
 import { DOMAIN_EVENTS } from './events/domain-events.ts';
 
 export * from './interfaces/domain-event.interface.ts';
@@ -12,11 +13,13 @@ export * from './event-bus.ts';
 export * from './observers/notification.observer.ts';
 export * from './observers/history.observer.ts';
 export * from './observers/realtime.observer.ts';
+export * from './observers/email.observer.ts';
 
 export interface SetupObserversOptions {
   notificationObserver?: NotificationObserver;
   historyObserver?: HistoryObserver;
   realtimeObserver?: RealTimeObserver;
+  emailObserver?: EmailObserver;
 }
 
 /**
@@ -29,6 +32,7 @@ export function setupDomainEventObservers(
   const notificationObserver = options?.notificationObserver ?? new NotificationObserver();
   const historyObserver = options?.historyObserver ?? new HistoryObserver();
   const realtimeObserver = options?.realtimeObserver ?? new RealTimeObserver();
+  const emailObserver = options?.emailObserver ?? new EmailObserver();
 
   // Registrar observadores para los eventos de dominio principales
   const domainEventTypes = [
@@ -43,10 +47,15 @@ export function setupDomainEventObservers(
     bus.register(eventType, realtimeObserver);
   }
 
+  bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, notificationObserver);
+  bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, realtimeObserver);
+  bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, emailObserver);
+
   return {
     bus,
     notificationObserver,
     historyObserver,
     realtimeObserver,
+    emailObserver,
   };
 }

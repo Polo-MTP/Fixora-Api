@@ -14,6 +14,8 @@ import authRoutes from './routes/auth.routes.ts';
 import testAuthRoutes from './routes/auth.test.routes.ts';
 
 import categoriesRoutes from './routes/categories.routes.ts';
+import accountRoutes from './routes/account.routes.ts';
+import passwordRecoveryRoutes from './routes/password-recovery.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
@@ -57,8 +59,14 @@ app.use('/api', apiRouter);
 // Autenticación
 app.use('/api/auth', authRoutes);
 
+//Recuperacion de contrasena
+app.use('/api/auth', passwordRecoveryRoutes);
+
 //Categorias
 app.use('/api/categories', categoriesRoutes);
+
+// Mi cuenta (datos personales, contraseña y direcciones del usuario que inició sesión)
+app.use('/api/me', accountRoutes);
 
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {

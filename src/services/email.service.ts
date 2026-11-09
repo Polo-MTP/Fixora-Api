@@ -225,7 +225,7 @@ export async function sendVerificationCodeEmail(
 }
 
 // ============================================================================
-// 2. RECUPERACIÓN DE CONTRASEÑA (API-17)
+// 2. RECUPERACIÓN DE CONTRASEÑA (API-9 / API-17)
 // ============================================================================
 
 export function renderPasswordResetEmail(options: PasswordResetEmailOptions): RenderedEmail {
@@ -283,7 +283,7 @@ Si tú no realizaste esta solicitud, puedes ignorar este mensaje con tranquilida
   let linkHtmlBlock = '';
   if (safeLink) {
     linkHtmlBlock = `
-      <div style="margin: 24px 0; text-align: center;">
+      <div style="margin: 28px 0; text-align: center;">
         <a href="${safeLink}" style="
           display: inline-block;
           padding: 12px 28px;
@@ -347,6 +347,22 @@ export async function sendPasswordResetEmail(options: PasswordResetEmailOptions)
   });
 }
 
+/**
+ * Función helper de compatibilidad para código que requiere la firma antigua `sendPasswordRecoveryCodeEmail`.
+ */
+export async function sendPasswordRecoveryCodeEmail(
+  email: string,
+  code: string,
+  expiresInMinutes: number,
+): Promise<void> {
+  await sendPasswordResetEmail({
+    email,
+    name: 'Usuario',
+    code,
+    expiresInMinutes,
+  });
+}
+
 // ============================================================================
 // 3. SOLICITUD DE PROVEEDOR RECIBIDA (API-17)
 // ============================================================================
@@ -359,8 +375,8 @@ export function renderSupplierApplicationReceivedEmail(
   const safeFolio = escapeHtml(options.applicationId);
   const safeType = options.supplierType
     ? escapeHtml(
-        options.supplierType === 'empresa' ? 'Empresa con sucursales' : 'Profesional independiente',
-      )
+      options.supplierType === 'empresa' ? 'Empresa con sucursales' : 'Profesional independiente',
+    )
     : 'No especificado';
   const subject = `Hemos recibido tu solicitud de proveedor - Fixora (Folio #${options.applicationId})`;
 

@@ -35,41 +35,39 @@ export class HistoryObserver implements Observer<DomainEvent> {
     this.persister = customPersister ?? this.defaultDatabasePersister;
   }
 
+  // Si falla, el error llega al EventBus: lo registra y lo cuenta como fallo de este observador
+  // sin afectar a los demás. Tragárselo aquí haría que el bus lo reportara como éxito.
   private async defaultDatabasePersister(entry: HistoryEntry): Promise<void> {
-    try {
-      if (entry.category === 'service_request') {
-        type RequestStatus = (typeof serviceRequestStatusEnum.enumValues)[number];
-        await db.insert(service_request_events).values({
-          request_id: BigInt(entry.aggregateId),
-          from_status: (entry.fromStatus as unknown as RequestStatus) ?? null,
-          to_status: entry.toStatus as unknown as RequestStatus,
-          changed_by: BigInt(entry.changedBy),
-          latitude: entry.details?.latitude != null ? String(entry.details.latitude) : null,
-          longitude: entry.details?.longitude != null ? String(entry.details.longitude) : null,
+    if (entry.category === 'service_request') {
+      type RequestStatus = (typeof serviceRequestStatusEnum.enumValues)[number];
+      await db.insert(service_request_events).values({
+        request_id: BigInt(entry.aggregateId),
+        from_status: (entry.fromStatus as unknown as RequestStatus) ?? null,
+        to_status: entry.toStatus as unknown as RequestStatus,
+        changed_by: BigInt(entry.changedBy),
+        latitude: entry.details?.latitude != null ? String(entry.details.latitude) : null,
+        longitude: entry.details?.longitude != null ? String(entry.details.longitude) : null,
+      });
+    } else if (entry.category === 'report') {
+      type ReportStatus = (typeof reportStatusEnum.enumValues)[number];
+      await db.insert(reports_events).values({
+        report_id: BigInt(entry.aggregateId),
+        author_id: BigInt(entry.changedBy),
+        type: 'cambio_estado',
+        body: (entry.details?.comment as string) ?? `Cambio de estado a ${entry.toStatus}`,
+        from_status: (entry.fromStatus as unknown as ReportStatus) ?? null,
+        to_status: entry.toStatus as unknown as ReportStatus,
+      });
+    } else if (entry.category === 'supplier_verification') {
+      const docId = entry.details?.documentId;
+      if (docId) {
+        await db.insert(document_validations).values({
+          document_id: BigInt(String(docId)),
+          result: entry.toStatus,
+          reviewed_by: BigInt(entry.changedBy),
+          comment: (entry.details?.comment as string) ?? null,
         });
-      } else if (entry.category === 'report') {
-        type ReportStatus = (typeof reportStatusEnum.enumValues)[number];
-        await db.insert(reports_events).values({
-          report_id: BigInt(entry.aggregateId),
-          author_id: BigInt(entry.changedBy),
-          type: 'cambio_estado',
-          body: (entry.details?.comment as string) ?? `Cambio de estado a ${entry.toStatus}`,
-          from_status: (entry.fromStatus as unknown as ReportStatus) ?? null,
-          to_status: entry.toStatus as unknown as ReportStatus,
-        });
-      } else if (entry.category === 'supplier_verification') {
-        const docId = entry.details?.documentId;
-        if (docId) {
-          await db.insert(document_validations).values({
-            document_id: BigInt(String(docId)),
-            result: entry.toStatus,
-            reviewed_by: BigInt(entry.changedBy),
-            comment: (entry.details?.comment as string) ?? null,
-          });
-        }
       }
-    } catch (error) {
-      console.warn('[HistoryObserver] No se pudo guardar el registro de auditoría en BD:', error);
     }
   }
 

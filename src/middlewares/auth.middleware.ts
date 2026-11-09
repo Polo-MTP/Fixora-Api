@@ -15,12 +15,14 @@ interface AccessTokenPayload {
   role: string;
   sid: string;
   type: 'access';
+  scope?: 'supplier_application';
 }
 
 export interface AuthenticatedUser {
   id: string;
   role: string;
   sessionId: string;
+  accessScope?: 'supplier_application';
 }
 
 // Los tipos de Express declaran Request dentro del namespace global `Express`; extenderlo es la
@@ -83,7 +85,8 @@ export async function authenticateToken(
         decoded.type !== 'access' ||
         typeof decoded.sub !== 'string' ||
         typeof decoded.role !== 'string' ||
-        typeof decoded.sid !== 'string'
+        typeof decoded.sid !== 'string' ||
+        (decoded.scope !== undefined && decoded.scope !== 'supplier_application')
       ) {
         throw new Error('Payload inválido');
       }
@@ -131,24 +134,38 @@ export async function authenticateToken(
       return;
     }
 
-    // El estado debe corresponder al valor almacenado
-    // en el enum de la base de datos.
+    // El estado y rol actuales de la base de datos prevalecen sobre el token.
     const accountState = String(session.userState).trim().toLowerCase();
+    const isActive = accountState === 'activo' || accountState === 'activa';
+    const isPendingSupplier =
+      accountState === 'por_aprobar' &&
+      session.roleName.trim().toLowerCase() === 'proveedor' &&
+      payload.scope === 'supplier_application';
 
-    if ((accountState !== 'activo' && accountState !== 'activa') || !session.roleActive) {
+    // El alcance limitado solo permite consultar la solicitud propia o reemplazar
+    // documentos observados. No habilita el resto de rutas autenticadas.
+    const requestPath = req.originalUrl.split('?')[0];
+    const canUseSupplierApplicationRoute =
+      (req.method === 'GET' && requestPath === '/api/supplier-applications/me') ||
+      (req.method === 'PUT' &&
+        /^\/api\/supplier-applications\/me\/documents\/[^/]+$/.test(requestPath));
+
+    if (
+      !session.roleActive ||
+      (!isActive && !(isPendingSupplier && canUseSupplierApplicationRoute))
+    ) {
       res.status(403).json({
         error: 'ACCOUNT_NOT_ACTIVE',
-        message: 'La cuenta no está habilitada.',
+        message: 'La cuenta no está habilitada para realizar esta acción.',
       });
       return;
     }
 
-    // Se utiliza el rol actual de la base de datos,
-    // no el valor del rol incluido en el token.
     req.user = {
       id: session.userId.toString(),
       role: session.roleName,
       sessionId: session.sessionId,
+      ...(isPendingSupplier ? { accessScope: 'supplier_application' as const } : {}),
     };
 
     next();

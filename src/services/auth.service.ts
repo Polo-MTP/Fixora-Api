@@ -60,12 +60,14 @@ interface AccessTokenPayload {
   role: string;
   sid: string;
   type: 'access';
+  scope?: 'supplier_application';
 }
 
 interface RefreshTokenPayload {
   sub: string;
   sid: string;
   type: 'refresh';
+  scope?: 'supplier_application';
 }
 
 interface UserWithRole {
@@ -100,12 +102,18 @@ function publicUser(user: { UniqueID: bigint; email: string; state: string; role
   };
 }
 
-function createAccessToken(userId: string, role: string, sessionId: string): string {
+function createAccessToken(
+  userId: string,
+  role: string,
+  sessionId: string,
+  scope?: 'supplier_application',
+): string {
   const payload: AccessTokenPayload = {
     sub: userId,
     role,
     sid: sessionId,
     type: 'access',
+    ...(scope ? { scope } : {}),
   };
 
   return jwt.sign(payload, ACCESS_SECRET!, {
@@ -115,11 +123,16 @@ function createAccessToken(userId: string, role: string, sessionId: string): str
   });
 }
 
-function createRefreshToken(userId: string, sessionId: string): string {
+function createRefreshToken(
+  userId: string,
+  sessionId: string,
+  scope?: 'supplier_application',
+): string {
   const payload: RefreshTokenPayload = {
     sub: userId,
     sid: sessionId,
     type: 'refresh',
+    ...(scope ? { scope } : {}),
   };
 
   return jwt.sign(payload, REFRESH_SECRET!, {
@@ -139,6 +152,7 @@ function verifyRefreshToken(refreshToken: string): RefreshTokenPayload {
     if (
       typeof decoded === 'string' ||
       decoded.type !== 'refresh' ||
+      (decoded.scope !== undefined && decoded.scope !== 'supplier_application') ||
       typeof decoded.sub !== 'string' ||
       typeof decoded.sid !== 'string'
     ) {
@@ -155,30 +169,41 @@ function verifyRefreshToken(refreshToken: string): RefreshTokenPayload {
   }
 }
 
-function validateActiveAccount(state: string, roleActive: boolean): void {
+function validateActiveAccount(
+  state: string,
+  roleActive: boolean,
+  roleName: string,
+): 'supplier_application' | undefined {
   if (!roleActive) {
     throw new AuthError(403, 'ROLE_INACTIVE', 'El rol de esta cuenta está desactivado.');
   }
 
   const normalizedState = normalizeState(state);
 
-  // Aceptar ACTIVO (Drizzle actual) y ACTIVA
-  // por compatibilidad con el esquema anterior.
-  if (normalizedState !== 'ACTIVO' && normalizedState !== 'ACTIVA') {
-    const messages: Record<string, string> = {
-      POR_VERIFICAR: 'La cuenta aún está pendiente de verificación.',
-      POR_APROBAR: 'La cuenta está pendiente de aprobación.',
-      BLOQUEADA: 'La cuenta está bloqueada.',
-      SUSPENDIDO: 'La cuenta está suspendida.',
-      INACTIVO: 'La cuenta está inactiva.',
-    };
-
-    throw new AuthError(
-      403,
-      'ACCOUNT_NOT_ACTIVE',
-      messages[normalizedState] ?? 'La cuenta no está habilitada para iniciar sesión.',
-    );
+  // Las cuentas activas reciben acceso normal a la API.
+  if (normalizedState === 'ACTIVO' || normalizedState === 'ACTIVA') {
+    return undefined;
   }
+
+  // El proveedor en revisión recibe un token de alcance limitado para consultar
+  // su solicitud y reemplazar documentos observados, pero no acceso general.
+  if (normalizedState === 'POR_APROBAR' && roleName.trim().toLowerCase() === 'proveedor') {
+    return 'supplier_application';
+  }
+
+  const messages: Record<string, string> = {
+    POR_VERIFICAR: 'La cuenta aún está pendiente de verificación.',
+    POR_APROBAR: 'La cuenta está pendiente de aprobación.',
+    BLOQUEADA: 'La cuenta está bloqueada.',
+    SUSPENDIDO: 'La cuenta está suspendida.',
+    INACTIVO: 'La cuenta está inactiva.',
+  };
+
+  throw new AuthError(
+    403,
+    'ACCOUNT_NOT_ACTIVE',
+    messages[normalizedState] ?? 'La cuenta no está habilitada para iniciar sesión.',
+  );
 }
 
 async function findUserByEmail(email: string): Promise<UserWithRole | undefined> {
@@ -275,7 +300,7 @@ export async function login(emailInput: string, password: string) {
     throw new AuthError(401, 'INVALID_CREDENTIALS', 'Correo o contraseña incorrectos.');
   }
 
-  validateActiveAccount(user.state, user.role_active);
+  const accessScope = validateActiveAccount(user.state, user.role_active, user.role_name);
 
   // Reiniciar los intentos después de autenticar correctamente.
   await db
@@ -289,9 +314,9 @@ export async function login(emailInput: string, password: string) {
   const userId = user.UniqueID.toString();
   const sessionId = randomUUID();
 
-  const accessToken = createAccessToken(userId, user.role_name, sessionId);
+  const accessToken = createAccessToken(userId, user.role_name, sessionId, accessScope);
 
-  const refreshToken = createRefreshToken(userId, sessionId);
+  const refreshToken = createRefreshToken(userId, sessionId, accessScope);
 
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000);
 
@@ -361,13 +386,18 @@ export async function refreshSession(refreshToken: string) {
     throw new AuthError(401, 'INVALID_SESSION', 'La sesión no es válida o ha expirado.');
   }
 
-  validateActiveAccount(session.state, session.role_active);
+  const accessScope = validateActiveAccount(session.state, session.role_active, session.role_name);
 
   const userId = session.UniqueID.toString();
 
-  const newAccessToken = createAccessToken(userId, session.role_name, session.session_id);
+  const newAccessToken = createAccessToken(
+    userId,
+    session.role_name,
+    session.session_id,
+    accessScope,
+  );
 
-  const newRefreshToken = createRefreshToken(userId, session.session_id);
+  const newRefreshToken = createRefreshToken(userId, session.session_id, accessScope);
 
   const newExpiresAt = new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000);
 

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { and, desc, eq, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 import { db } from '../config/database.ts';
 import {
   addresses,
@@ -673,9 +673,29 @@ export class SupplierApplicationService {
       );
     }
 
-    // 1. Localizar la solicitud de proveedor
+    // 1. Localizar la solicitud de proveedor. Cuando se envían ambos IDs,
+    // se exige que la solicitud pertenezca al usuario autenticado.
     let applicationRow;
-    if (input.userId) {
+    if (input.userId && input.applicationId) {
+      const rows = await db
+        .select({
+          application_id: supplier_applications.UniqueID,
+          application_state: supplier_applications.state,
+          supplier_id: suppliers.UniqueID,
+          supplier_type: suppliers.supplier_type,
+          user_id: suppliers.user_id,
+        })
+        .from(supplier_applications)
+        .innerJoin(suppliers, eq(supplier_applications.supplier_id, suppliers.UniqueID))
+        .where(
+          and(
+            eq(supplier_applications.UniqueID, BigInt(input.applicationId)),
+            eq(suppliers.user_id, BigInt(input.userId)),
+          ),
+        )
+        .limit(1);
+      applicationRow = rows[0];
+    } else if (input.userId) {
       const rows = await db
         .select({
           application_id: supplier_applications.UniqueID,
@@ -736,8 +756,12 @@ export class SupplierApplicationService {
     let fileHash = input.fileHash || null;
 
     if (input.file) {
-      storageService.validateFile(input.file, 'documents');
-      const saved = await storageService.saveUploadedFile(input.file, 'documents');
+      const saved = await storageService.saveUploadedFile(
+        input.file,
+        'documents',
+        applicationRow.user_id.toString(),
+        true,
+      );
       fileKey = saved.file_key;
       fileHash = crypto.createHash('sha256').update(input.file.buffer).digest('hex');
     }
@@ -758,7 +782,34 @@ export class SupplierApplicationService {
       dueDate: input.dueDate,
     });
 
-    // 5. Verificar si se completaron todos los documentos requeridos
+    // Registrar que el documento fue reemplazado y queda pendiente de una nueva revisión.
+    // reviewed_by referencia al usuario que hizo el reemplazo porque el esquema exige un usuario.
+    const dispatch = await eventBus.notify(
+      new SupplierVerificationEvent({
+        supplierId: applicationRow.supplier_id.toString(),
+        userId: applicationRow.user_id.toString(),
+        documentId: uploadedDoc.id,
+        documentName: uploadedDoc.type_name,
+        result: 'pendiente',
+        reviewedBy: applicationRow.user_id.toString(),
+        supplierType: applicationRow.supplier_type,
+        comment: 'Documento reemplazado por el proveedor; pendiente de nueva revisión.',
+      }),
+    );
+
+    const historyFailure = dispatch.errors.find(
+      (entry) => entry.observerName === 'HistoryObserver',
+    );
+    if (historyFailure) {
+      throw new AppError(
+        'No fue posible registrar el reemplazo del documento para su revisión.',
+        500,
+        'DOCUMENT_RESUBMISSION_FAILED',
+      );
+    }
+
+    // Solo regresar la solicitud a pendiente cuando no falte ningún obligatorio y
+    // tampoco queden documentos con una revisión anterior de rechazo.
     const isComplete = await this.checkMandatoryDocumentsComplete(
       applicationRow.supplier_id,
       applicationRow.supplier_type as SupplierType,
@@ -768,30 +819,9 @@ export class SupplierApplicationService {
     if (isComplete) {
       await db
         .update(supplier_applications)
-        .set({
-          state: 'pendiente',
-        })
+        .set({ state: 'pendiente' })
         .where(eq(supplier_applications.UniqueID, applicationRow.application_id));
-
       updatedState = 'pendiente';
-
-      // Notificar mediante el bus de eventos
-      try {
-        await eventBus.notify(
-          new SupplierVerificationEvent({
-            supplierId: applicationRow.supplier_id.toString(),
-            userId: applicationRow.user_id.toString(),
-            documentId: uploadedDoc.id,
-            result: 'pendiente',
-            reviewedBy: 'supplier',
-            supplierType: applicationRow.supplier_type,
-            comment:
-              'Documentación incompleta subsanada por el proveedor. Solicitud enviada a revisión.',
-          }),
-        );
-      } catch (err) {
-        console.error('[SupplierApplicationService] Error al emitir evento de verificación:', err);
-      }
     }
 
     return {
@@ -838,10 +868,42 @@ export class SupplierApplicationService {
       .from(supplier_documents)
       .where(eq(supplier_documents.supplier_id, supplierId));
 
-    const uploadedTypeIds = new Set(uploadedDocs.map((d) => d.type_document_id.toString()));
+    const uploadedTypeIds = new Set(uploadedDocs.map((doc) => doc.type_document_id.toString()));
 
-    for (const m of mandatoryTypes) {
-      if (!uploadedTypeIds.has(m.id.toString())) {
+    for (const mandatoryType of mandatoryTypes) {
+      if (!uploadedTypeIds.has(mandatoryType.id.toString())) {
+        return false;
+      }
+    }
+
+    if (uploadedDocs.length > 0) {
+      const validations = await db
+        .select({
+          document_id: document_validations.document_id,
+          result: document_validations.result,
+          reviewed_at: document_validations.reviewed_at,
+        })
+        .from(document_validations)
+        .where(
+          inArray(
+            document_validations.document_id,
+            uploadedDocs.map((doc) => doc.id),
+          ),
+        )
+        .orderBy(
+          asc(document_validations.document_id),
+          desc(document_validations.reviewed_at),
+          desc(document_validations.UniqueID),
+        );
+
+      const latestResults = new Map<bigint, string>();
+      for (const validation of validations) {
+        if (!latestResults.has(validation.document_id)) {
+          latestResults.set(validation.document_id, validation.result);
+        }
+      }
+
+      if (Array.from(latestResults.values()).some((result) => result === 'rechazado')) {
         return false;
       }
     }

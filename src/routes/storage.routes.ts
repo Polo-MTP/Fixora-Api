@@ -18,11 +18,12 @@ storageRouter.post('/signed-url', authenticateToken, (req, res, next) =>
 // Descargar archivo mediante enlace firmado
 storageRouter.get('/download', (req, res, next) => storageController.download(req, res, next));
 
-// Previsualizar archivo en navegador mediante enlace firmado
-storageRouter.get('/view', (req, res, next) => {
-  req.query.disposition = 'inline';
-  storageController.download(req, res, next);
-});
+// Previsualizar archivo en navegador mediante enlace firmado.
+// En Express 5 req.query se vuelve a leer de la URL cada vez, así que no sirve modificarlo:
+// la disposición se pasa directo al controlador.
+storageRouter.get('/view', (req, res, next) =>
+  storageController.download(req, res, next, 'inline'),
+);
 
 // Eliminar archivo (requiere sesión activa)
 storageRouter.delete('/', authenticateToken, (req, res, next) =>

@@ -36,8 +36,11 @@ supplierApplicationsRouter.put(
 );
 
 // Reemplazar documento por ID de solicitud en 'documentacion_incompleta'
-supplierApplicationsRouter.put('/:id/documents/:typeDocumentId', optionalUpload, (req, res, next) =>
-  supplierApplicationController.replaceDocumentById(req, res, next),
+supplierApplicationsRouter.put(
+  '/:id/documents/:typeDocumentId',
+  authenticateToken,
+  optionalUpload,
+  (req, res, next) => supplierApplicationController.replaceDocumentById(req, res, next),
 );
 
 // Consultar estado de solicitud (por query params ?application_id=... o ?email=...)

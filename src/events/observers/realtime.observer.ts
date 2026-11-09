@@ -5,6 +5,7 @@ import {
   type ServiceRequestStatusChangedPayload,
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
+  type SupplierApplicationResolvedPayload,
 } from '../events/domain-events.ts';
 
 export interface RealTimeMessage {
@@ -78,6 +79,20 @@ export class RealTimeObserver implements Observer<DomainEvent> {
               status: payload.toStatus,
               resolutionType: payload.resolutionType,
             },
+            timestamp,
+          });
+        }
+        break;
+      }
+
+      case DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED: {
+        const payload = event.payload as SupplierApplicationResolvedPayload;
+        const channels = [`users:${payload.userId}`, 'admin:verifications'];
+        for (const channel of channels) {
+          await this.emitMessage({
+            channel,
+            event: 'supplier_application_resolved',
+            data: { applicationId: payload.applicationId, state: payload.state },
             timestamp,
           });
         }

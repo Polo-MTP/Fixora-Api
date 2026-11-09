@@ -5,6 +5,7 @@ import {
   type ServiceRequestStatusChangedPayload,
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
+  type SupplierApplicationResolvedPayload,
 } from '../events/domain-events.ts';
 import { db } from '../../config/database.ts';
 import { notifications } from '../../database/schema/tables.ts';
@@ -29,19 +30,17 @@ export class NotificationObserver implements Observer<DomainEvent> {
     this.persister = customPersister ?? this.defaultDatabasePersister;
   }
 
+  // Si falla, el error llega al EventBus: lo registra y lo cuenta como fallo de este observador
+  // sin afectar a los demás. Tragárselo aquí haría que el bus lo reportara como éxito.
   private async defaultDatabasePersister(record: NotificationRecord): Promise<void> {
-    try {
-      await db.insert(notifications).values({
-        user_id: BigInt(record.userId),
-        type: record.type,
-        title: record.title,
-        message: record.message,
-        entity_type: record.entityType,
-        entity_id: record.entityId ? BigInt(record.entityId) : null,
-      });
-    } catch (error) {
-      console.warn('[NotificationObserver] No se pudo guardar la notificación en BD:', error);
-    }
+    await db.insert(notifications).values({
+      user_id: BigInt(record.userId),
+      type: record.type,
+      title: record.title,
+      message: record.message,
+      entity_type: record.entityType,
+      entity_id: record.entityId ? BigInt(record.entityId) : null,
+    });
   }
 
   public async handle(event: DomainEvent): Promise<void> {
@@ -59,6 +58,11 @@ export class NotificationObserver implements Observer<DomainEvent> {
       case DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED: {
         const payload = event.payload as SupplierVerificationPayload;
         await this.handleSupplierVerification(payload);
+        break;
+      }
+      case DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED: {
+        const payload = event.payload as SupplierApplicationResolvedPayload;
+        await this.handleSupplierApplicationResolved(payload);
         break;
       }
       default:
@@ -116,21 +120,69 @@ export class NotificationObserver implements Observer<DomainEvent> {
   }
 
   private async handleSupplierVerification(payload: SupplierVerificationPayload): Promise<void> {
-    const { supplierId, userId, result, comment } = payload;
-    const isApproved = result === 'aprobado';
-    const message = isApproved
-      ? '¡Felicidades! Tus documentos de proveedor han sido aprobados. Tu cuenta está habilitada.'
-      : `Tu verificación de documentos fue rechazada${comment ? ': ' + comment : '.'}`;
+    const { supplierId, userId, result, comment, documentId, documentName } = payload;
+
+    if (documentId) {
+      const approved = result === 'aprobado';
+      const pending = result === 'pendiente';
+      const record: NotificationRecord = {
+        userId,
+        type: 'revision_documento_proveedor',
+        title: `Revisión de documento: ${documentName ?? `#${documentId}`}`,
+        message: pending
+          ? `Recibimos tu documento ${documentName ?? `#${documentId}`} y está pendiente de revisión.`
+          : approved
+            ? `Tu documento ${documentName ?? `#${documentId}`} fue aprobado.${comment ? ` Observación: ${comment}` : ''}`
+            : `Tu documento ${documentName ?? `#${documentId}`} requiere correcciones.${comment ? ` Motivo: ${comment}` : ''}`,
+        entityType: 'supplier_document',
+        entityId: documentId,
+      };
+      this.dispatchedRecords.push(record);
+      await this.persister(record);
+      return;
+    }
+
+    const message =
+      result === 'pendiente'
+        ? 'Hemos recibido tu solicitud de proveedor y está pendiente de revisión.'
+        : result === 'aprobado'
+          ? '¡Felicidades! Tus documentos de proveedor han sido aprobados. Tu cuenta está habilitada.'
+          : `Tu verificación de documentos fue rechazada${comment ? ': ' + comment : '.'}`;
 
     const record: NotificationRecord = {
       userId,
       type: 'verificacion_proveedor',
-      title: isApproved ? 'Verificación Aprobada' : 'Verificación Rechazada',
+      title:
+        result === 'pendiente'
+          ? 'Solicitud recibida'
+          : result === 'aprobado'
+            ? 'Verificación Aprobada'
+            : 'Verificación Rechazada',
       message,
       entityType: 'supplier_verification',
       entityId: supplierId,
     };
 
+    this.dispatchedRecords.push(record);
+    await this.persister(record);
+  }
+
+  private async handleSupplierApplicationResolved(
+    payload: SupplierApplicationResolvedPayload,
+  ): Promise<void> {
+    const labels = {
+      aprobada: 'aprobada',
+      rechazada: 'rechazada',
+      documentacion_incompleta: 'requiere documentación adicional',
+    } as const;
+    const record: NotificationRecord = {
+      userId: payload.userId,
+      type: 'solicitud_proveedor_resuelta',
+      title: 'Resultado de tu solicitud de proveedor',
+      message: `Tu solicitud #${payload.applicationId} fue ${labels[payload.state]}.${payload.comments ? ` Observaciones: ${payload.comments}` : ''}`,
+      entityType: 'supplier_application',
+      entityId: payload.applicationId,
+    };
     this.dispatchedRecords.push(record);
     await this.persister(record);
   }
