@@ -1815,10 +1815,10 @@ paths:
     post:
       tags:
         - Administración
-      summary: '[Planeado · API-14] Dar de alta un administrador o soporte'
-      description: Solo el administrador principal. La cuenta nace `activo` y entra solo por web.
-      x-estado: planeado
-      x-ticket: API-14
+      summary: Dar de alta un administrador o soporte
+      description: >
+        Permite al administrador principal crear una cuenta
+        de Administrador o Soporte. La cuenta se crea activa.
       security:
         - bearerAuth: []
       requestBody:
@@ -1826,31 +1826,71 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/StaffCreate'
+              $ref: '#/components/schemas/AdminStaffCreate'
+            example:
+              email: user@example.com
+              password: stringst
+              name: Ana
+              lastname_p: Pérez
+              lastname_m: López
+              role: administrador
+              phone: '5512345678'
       responses:
         '201':
           description: Cuenta creada.
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Profile'
+                $ref: '#/components/schemas/AdminStaffResponse'
+              example:
+                success: true
+                message: Operación realizada correctamente.
+                data:
+                  id: '12'
+                  email: user@example.com
+                  role: administrador
+                  state: activo
+                  name: Ana
+                  lastname_p: Pérez
+                  lastname_m: López
+                  birth_date: null
+                  phone: '5512345678'
         '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          description: El correo ya está registrado (`EMAIL_ALREADY_REGISTERED`).
+          description: Los datos no cumplen el contrato.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: VALIDATION_ERROR
+                message: Los datos enviados no son válidos.
+                details:
+                  - field: phone
+                    message: El teléfono debe tener 10 dígitos.
+                availableRoles:
+                  - administrador
+                  - soporte
+                availableStatuses:
+                  - activo
+        '401':
+          description: Falta el token, no es válido o la sesión terminó.
+          content:
+            application/json:
+              example:
+                error: INVALID_ACCESS_TOKEN
+                message: El token no es válido o ha expirado.
+        '403':
+          description: La cuenta no tiene permiso para esta acción.
+          content:
+            application/json:
+              example:
+                error: INSUFFICIENT_PERMISSIONS
+                message: No tienes permisos para realizar esta acción.
+        '409':
+          description: El correo ya está registrado.
+          content:
+            application/json:
+              example:
+                error: EMAIL_ALREADY_REGISTERED
+                message: El correo ya está registrado.
 
   # ==========================================================================
   # Planeados · Módulo 3: sucursal, empleados, categorías, portafolio y ficha
@@ -3318,6 +3358,96 @@ components:
         - error
         - message
 
+
+    AdminStaffCreate:
+          type: object
+          required:
+            - email
+            - password
+            - name
+            - lastname_p
+            - role
+          properties:
+            email:
+              type: string
+              format: email
+              maxLength: 255
+            password:
+              type: string
+              format: password
+              minLength: 8
+              maxLength: 72
+            name:
+              type: string
+              maxLength: 100
+            lastname_p:
+              type: string
+              maxLength: 100
+            lastname_m:
+              type:
+                - string
+                - 'null'
+              maxLength: 100
+            role:
+              type: string
+              enum:
+                - administrador
+                - soporte
+            birth_date:
+              type:
+                - string
+                - 'null'
+              format: date
+            phone:
+              type:
+                - string
+                - 'null'
+              pattern: '^[0-9]{10}$'
+
+    AdminStaffResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operación realizada correctamente.
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              example: '12'
+            email:
+              type: string
+              format: email
+            role:
+              type: string
+              enum:
+                - administrador
+                - soporte
+            state:
+              type: string
+              enum:
+                - activo
+            name:
+              type: string
+            lastname_p:
+              type: string
+            lastname_m:
+              type:
+                - string
+                - 'null'
+            birth_date:
+              type:
+                - string
+                - 'null'
+              format: date
+            phone:
+              type:
+                - string
+                - 'null'
     # ------------------------------------------------------------------------
     # Convenciones comunes
     # ------------------------------------------------------------------------
