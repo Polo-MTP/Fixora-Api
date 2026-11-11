@@ -17,6 +17,10 @@ import categoriesRoutes from './routes/categories.routes.ts';
 import accountRoutes from './routes/account.routes.ts';
 import passwordRecoveryRoutes from './routes/password-recovery.routes.ts';
 import adminStaffRoutes from './routes/admin-staff.routes.ts';
+import branchRoutes from './routes/branch.routes.ts';
+import portfolioRoutes from './routes/portfolio.routes.ts';
+import supplierDocumentRoutes from './routes/supplier-document.routes.ts';
+import employeeRoutes from './routes/employee.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
@@ -68,6 +72,12 @@ app.use('/api/categories', categoriesRoutes);
 
 // Mi cuenta (datos personales, contraseña y direcciones del usuario que inició sesión)
 app.use('/api/me', accountRoutes);
+
+// Sucursales, portafolio, categorías y certificados (API-20)
+app.use('/api/branches', branchRoutes);
+app.use('/api/portfolio', portfolioRoutes);
+app.use('/api/supplier-documents', supplierDocumentRoutes);
+app.use('/api/employees', employeeRoutes);
 
 //Dar de alta a administrador o Soporte
 app.use('/api/admin', adminStaffRoutes);
