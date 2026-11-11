@@ -16,6 +16,9 @@ import {
 import { BadRequestError } from '../errors/app-error.ts';
 import { checkBranchSchedule } from './technician-availability.service.ts';
 import { storageService } from './storage.service.ts';
+import { matchingService } from './matching.service.ts';
+import { calculateHaversineDistanceKm } from '../utils/geo.utils.ts';
+export { calculateHaversineDistanceKm } from '../utils/geo.utils.ts';
 import type {
   BranchSearchResultItem,
   SearchBranchesQuery,
@@ -24,32 +27,8 @@ import type {
 } from '../types/search.types.ts';
 
 /**
- * Calcula la distancia en kilómetros entre dos coordenadas geográficas mediante la fórmula de Haversine.
- */
-export function calculateHaversineDistanceKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const R = 6371; // Radio medio de la Tierra en km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Math.round(R * c * 100) / 100;
-}
-
-/**
  * Ordena los resultados de búsqueda según el criterio seleccionado.
- * - 'recomendado': Da prioridad a los proveedores abiertos y a los independientes (algoritmo API-24).
+ * - 'recomendado': Algoritmo ponderado de emparejamiento oficial (API-24).
  * - 'distancia': Menor distancia al cliente.
  * - 'calificacion': Mayor rating_avg y reviews_count.
  * - 'precio': Menor precio base (los que no tienen precio van al final).
@@ -57,6 +36,7 @@ export function calculateHaversineDistanceKm(
 export function sortSearchResults(
   items: BranchSearchResultItem[],
   sortBy: SearchSortOption = 'recomendado',
+  radiusKm = 10,
 ): BranchSearchResultItem[] {
   const sorted = [...items];
 
@@ -87,24 +67,7 @@ export function sortSearchResults(
 
     case 'recomendado':
     default:
-      // Algoritmo de recomendación:
-      // 1. Abiertos primero (open_now)
-      // 2. Bonificación a técnicos independientes (reduce virtualmente 3 km para ordenamiento)
-      // 3. Balance de distancia y calificación
-      return sorted.sort((a, b) => {
-        // Prioridad 1: Abiertos en este momento
-        if (a.open_now !== b.open_now) {
-          return a.open_now ? -1 : 1;
-        }
-
-        // Prioridad 2: Algoritmo de impulso a independientes
-        const scoreA =
-          a.distance_km - (a.supplier_type === 'independiente' ? 3.0 : 0) - a.rating_avg * 0.5;
-        const scoreB =
-          b.distance_km - (b.supplier_type === 'independiente' ? 3.0 : 0) - b.rating_avg * 0.5;
-
-        return scoreA - scoreB;
-      });
+      return matchingService.rankBranchesForSearch(sorted, radiusKm);
   }
 }
 
@@ -365,8 +328,8 @@ export class SearchService {
       });
     }
 
-    // 8. Ordenar según el criterio solicitado
-    const sortedItems = sortSearchResults(matchedItems, sortOption);
+    // 8. Ordenar según el criterio solicitado (API-24 algoritmo de emparejamiento para 'recomendado')
+    const sortedItems = sortSearchResults(matchedItems, sortOption, radiusKm);
 
     // 9. Aplicar paginación
     const total = sortedItems.length;
