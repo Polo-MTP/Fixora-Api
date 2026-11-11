@@ -2165,6 +2165,136 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/technicians/me/availability:
+    get:
+      tags:
+        - Técnicos
+      summary: '[Planeado · API-22] Consultar disponibilidad y posición del técnico'
+      x-estado: planeado
+      x-ticket: API-22
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Disponibilidad y posición obtenidas exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TechnicianAvailability'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Técnicos
+      summary: '[Planeado · API-22] Interruptor En línea / Fuera de línea y posición en Redis'
+      description: |
+        Activa o desactiva la disponibilidad del técnico en Redis.
+        Si se activa (`online: true`), valida que la sucursal acepte solicitudes y esté dentro del horario
+        de atención; guarda la posición en el índice geográfico con expiración.
+      x-estado: planeado
+      x-ticket: API-22
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - online
+              properties:
+                online:
+                  type: boolean
+                latitude:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                longitude:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+      responses:
+        '200':
+          description: Disponibilidad actualizada exitosamente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TechnicianAvailability'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Sucursal fuera de horario o no acepta solicitudes (`OUTSIDE_BRANCH_SCHEDULE`, `BRANCH_NOT_ACCEPTING_REQUESTS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/employees/{id}/availability:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Empleados
+      summary: '[Planeado · API-22] Consultar disponibilidad de un empleado técnico'
+      x-estado: planeado
+      x-ticket: API-22
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Disponibilidad del empleado obtenida exitosamente.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Empleados
+      summary: '[Planeado · API-22] Modificar disponibilidad de un empleado técnico'
+      x-estado: planeado
+      x-ticket: API-22
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - online
+              properties:
+                online:
+                  type: boolean
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+      responses:
+        '200':
+          description: Disponibilidad actualizada exitosamente.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/schemas/ErrorResponse'
+
   # ==========================================================================
   # Planeados · Módulo 4: búsqueda y mapa
   # ==========================================================================
@@ -4585,6 +4715,46 @@ components:
               created_at:
                 type: string
                 format: date-time
+
+    TechnicianAvailability:
+      type: object
+      properties:
+        employee_id:
+          type: string
+        user_id:
+          type: string
+        branch_id:
+          type: string
+        online:
+          type: boolean
+        location:
+          type:
+            - object
+            - 'null'
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+        branch:
+          type: object
+          properties:
+            id:
+              type: string
+            accepting_request:
+              type: boolean
+            is_open:
+              type: boolean
+            current_time:
+              type: string
+        expires_in_seconds:
+          type: integer
+          description: Segundos restantes antes de que la marca de disponibilidad expire por inactividad.
+        updated_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
 
     BranchSearchResult:
       type: object
