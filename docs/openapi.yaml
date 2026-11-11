@@ -3352,51 +3352,50 @@ components:
         - error
         - message
 
-
     AdminStaffCreate:
-          type: object
-          required:
-            - email
-            - password
-            - name
-            - lastname_p
-            - role
-          properties:
-            email:
-              type: string
-              format: email
-              maxLength: 255
-            password:
-              type: string
-              format: password
-              minLength: 8
-              maxLength: 72
-            name:
-              type: string
-              maxLength: 100
-            lastname_p:
-              type: string
-              maxLength: 100
-            lastname_m:
-              type:
-                - string
-                - 'null'
-              maxLength: 100
-            role:
-              type: string
-              enum:
-                - administrador
-                - soporte
-            birth_date:
-              type:
-                - string
-                - 'null'
-              format: date
-            phone:
-              type:
-                - string
-                - 'null'
-              pattern: '^[0-9]{10}$'
+      type: object
+      required:
+        - email
+        - password
+        - name
+        - lastname_p
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+        name:
+          type: string
+          maxLength: 100
+        lastname_p:
+          type: string
+          maxLength: 100
+        lastname_m:
+          type:
+            - string
+            - 'null'
+          maxLength: 100
+        role:
+          type: string
+          enum:
+            - administrador
+            - soporte
+        birth_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        phone:
+          type:
+            - string
+            - 'null'
+          pattern: '^[0-9]{10}$'
 
     AdminStaffResponse:
       type: object
@@ -4514,6 +4513,14 @@ components:
           type:
             - string
             - 'null'
+        is_verified:
+          type: boolean
+          description: Si el proveedor cuenta con solicitud aprobada (insignia de verificado).
+        plates:
+          type: array
+          items:
+            type: string
+          description: Placas de vehículos activos de los técnicos/empleados asignados a la sucursal.
         rating_avg:
           type: number
           example: 4.7

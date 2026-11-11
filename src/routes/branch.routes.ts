@@ -1,13 +1,17 @@
 import { Router } from 'express';
 import { portfolioController } from '../controllers/portfolio.controller.ts';
 import { employeeProfileController } from '../controllers/employee-profile.controller.ts';
+import { branchPublicController } from '../controllers/branch-public.controller.ts';
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
 
 const router = Router();
 
 // ============================================================
-// PORTAFOLIO Y CERTIFICADOS (PÚBLICOS)
+// FICHA PÚBLICA, PORTAFOLIO Y CERTIFICADOS (PÚBLICOS)
 // ============================================================
+
+// Ficha pública del proveedor / sucursal (API-21)
+router.get('/:id/public', branchPublicController.getBranchPublicProfile);
 
 // Listar trabajos del portafolio de una sucursal (público)
 router.get('/:id/portfolio', portfolioController.getBranchPortfolio);

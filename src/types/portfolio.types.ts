@@ -110,3 +110,46 @@ export interface EmployeeDetailResponse {
   profile: EmployeeProfileResponse;
   vehicle: EmployeeVehicleResponse | null;
 }
+
+export interface BranchPublicLocation {
+  colony: string;
+  municipality: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface BranchScheduleResponse {
+  day_of_week: number;
+  open_time: string;
+  close_time: string;
+  active?: boolean;
+}
+
+export interface BranchReviewSummary {
+  rating: number;
+  comment: string | null;
+  author_name: string;
+  created_at?: string;
+}
+
+export interface BranchPublicProfileResponse {
+  id: string;
+  name: string;
+  business_name: string;
+  supplier_type: 'independiente' | 'empresa';
+  description: string | null;
+  logo_url: string | null;
+  phone: string | null;
+  is_verified: boolean;
+  plates: string[];
+  rating_avg: number;
+  reviews_count: number;
+  total_jobs: number;
+  accepting_request: boolean;
+  location: BranchPublicLocation;
+  schedules: BranchScheduleResponse[];
+  categories: BranchCategoryResponse[];
+  portfolio: PortfolioWorkResponse[];
+  certificates: CertificateResponse[];
+  latest_reviews: BranchReviewSummary[];
+}
