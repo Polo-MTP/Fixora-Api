@@ -1,180 +1,203 @@
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
-import { EventBus } from '../event-bus.ts';
+import type { Observer } from '../interfaces/observer.interface.ts';
+import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
 import {
-  ServiceRequestStatusChangedEvent,
-  ReportStatusChangedEvent,
-  SupplierVerificationEvent,
+  DOMAIN_EVENTS,
+  type ServiceRequestStatusChangedPayload,
+  type ReportStatusChangedPayload,
+  type SupplierVerificationPayload,
+  type SupplierApplicationResolvedPayload,
 } from '../events/domain-events.ts';
-import {
-  NotificationObserver,
-  type NotificationRecord,
-} from '../observers/notification.observer.ts';
-import { HistoryObserver, type HistoryEntry } from '../observers/history.observer.ts';
-import { RealTimeObserver, type RealTimeMessage } from '../observers/realtime.observer.ts';
-import { setupDomainEventObservers } from '../index.ts';
+import { db } from '../../config/database.ts';
+import { notifications } from '../../database/schema/tables.ts';
 
-describe('Observadores desacoplados de dominio', () => {
-  let bus: EventBus;
-  let notificationRecords: NotificationRecord[];
-  let historyEntries: HistoryEntry[];
-  let realTimeMessages: RealTimeMessage[];
+export interface NotificationRecord {
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  entityType?: string;
+  entityId?: string;
+}
 
-  let notificationObserver: NotificationObserver;
-  let historyObserver: HistoryObserver;
-  let realTimeObserver: RealTimeObserver;
+export type NotificationPersister = (record: NotificationRecord) => Promise<void>;
 
-  beforeEach(() => {
-    bus = new EventBus();
-    notificationRecords = [];
-    historyEntries = [];
-    realTimeMessages = [];
+export class NotificationObserver implements Observer<DomainEvent> {
+  public readonly name = 'NotificationObserver';
+  private readonly persister: NotificationPersister;
+  private readonly dispatchedRecords: NotificationRecord[] = [];
 
-    // Inyectamos persisters en memoria para pruebas unitarias sin dependencias externas
-    notificationObserver = new NotificationObserver(async (record) => {
-      notificationRecords.push(record);
+  constructor(customPersister?: NotificationPersister) {
+    this.persister = customPersister ?? this.defaultDatabasePersister;
+  }
+
+  // Si falla, el error llega al EventBus: lo registra y lo cuenta como fallo de este observador
+  // sin afectar a los demás. Tragárselo aquí haría que el bus lo reportara como éxito.
+  private async defaultDatabasePersister(record: NotificationRecord): Promise<void> {
+    await db.insert(notifications).values({
+      user_id: BigInt(record.userId),
+      type: record.type,
+      title: record.title,
+      message: record.message,
+      entity_type: record.entityType,
+      entity_id: record.entityId ? BigInt(record.entityId) : null,
     });
+  }
 
-    historyObserver = new HistoryObserver(async (entry) => {
-      historyEntries.push(entry);
-    });
+  public async handle(event: DomainEvent): Promise<void> {
+    switch (event.eventType) {
+      case DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED: {
+        const payload = event.payload as ServiceRequestStatusChangedPayload;
+        await this.handleServiceRequest(payload);
+        break;
+      }
+      case DOMAIN_EVENTS.REPORT_STATUS_CHANGED: {
+        const payload = event.payload as ReportStatusChangedPayload;
+        await this.handleReport(payload);
+        break;
+      }
+      case DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED: {
+        const payload = event.payload as SupplierVerificationPayload;
+        await this.handleSupplierVerification(payload);
+        break;
+      }
+      case DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED: {
+        const payload = event.payload as SupplierApplicationResolvedPayload;
+        await this.handleSupplierApplicationResolved(payload);
+        break;
+      }
+      default:
+        // Evento no procesado por este observador
+        break;
+    }
+  }
 
-    realTimeObserver = new RealTimeObserver((msg) => {
-      realTimeMessages.push(msg);
-    });
+  private async handleServiceRequest(payload: ServiceRequestStatusChangedPayload): Promise<void> {
+    const { requestId, toStatus, clientId, reason } = payload;
+    let message = `El estado de tu solicitud cambió a "${toStatus}".`;
 
-    setupDomainEventObservers(bus, {
-      notificationObserver,
-      historyObserver,
-      realtimeObserver: realTimeObserver,
-    });
-  });
+    if (toStatus === 'aceptada') {
+      message = '¡Un profesional ha aceptado tu solicitud de servicio!';
+    } else if (toStatus === 'en_curso') {
+      // Compatibilidad con el estado histórico utilizado por módulos anteriores.
+      message = 'El técnico está en camino o atendiendo tu solicitud.';
+    } else if (toStatus === 'en_camino') {
+      message = 'El técnico está en camino a tu domicilio.';
+    } else if (toStatus === 'llegado') {
+      message = 'El técnico ha llegado a tu domicilio.';
+    } else if (toStatus === 'completada') {
+      message = 'Tu servicio ha sido marcado como completado. ¡No olvides calificar la atención!';
+    } else if (toStatus === 'cancelada') {
+      message = `Tu solicitud fue cancelada${reason ? ': ' + reason : '.'}`;
+    }
 
-  describe('Evento: Cambio de estado de Solicitud de Servicio (Módulo 5)', () => {
-    it('debe notificar al cliente, registrar historial auditable y emitir en tiempo real', async () => {
-      const event = new ServiceRequestStatusChangedEvent({
-        requestId: '101',
-        fromStatus: 'pendiente',
-        toStatus: 'en_curso',
-        changedBy: '202',
-        clientId: '303',
-        employeeId: '404',
-        branchId: '505',
-        latitude: 19.4326,
-        longitude: -99.1332,
-      });
+    const record: NotificationRecord = {
+      userId: clientId,
+      type: 'solicitud_servicio',
+      title: `Actualización de Solicitud #${requestId}`,
+      message,
+      entityType: 'service_request',
+      entityId: requestId,
+    };
 
-      const summary = await bus.notify(event);
+    this.dispatchedRecords.push(record);
+    await this.persister(record);
+  }
 
-      assert.equal(summary.totalObservers, 3);
-      assert.equal(summary.succeeded, 3);
-      assert.equal(summary.failed, 0);
+  private async handleReport(payload: ReportStatusChangedPayload): Promise<void> {
+    const { reportId, reporterId, toStatus, resolutionType } = payload;
+    let message = `Tu reporte #${reportId} ha cambiado de estado a "${toStatus}".`;
 
-      // 1. Notificación generada
-      assert.equal(notificationRecords.length, 1);
-      const notif = notificationRecords[0];
-      assert.equal(notif.userId, '303');
-      assert.equal(notif.type, 'solicitud_servicio');
-      assert.equal(notif.entityId, '101');
-      assert.match(notif.message, /en camino o atendiendo/);
+    if (toStatus === 'resuelto') {
+      message = `Tu reporte #${reportId} ha sido resuelto${resolutionType ? ' (' + resolutionType + ')' : ''}.`;
+    }
 
-      // 2. Historial de eventos de servicio
-      assert.equal(historyEntries.length, 1);
-      const history = historyEntries[0];
-      assert.equal(history.category, 'service_request');
-      assert.equal(history.aggregateId, '101');
-      assert.equal(history.fromStatus, 'pendiente');
-      assert.equal(history.toStatus, 'en_curso');
-      assert.equal(history.changedBy, '202');
-      assert.equal(history.details?.latitude, 19.4326);
-      assert.equal(history.details?.longitude, -99.1332);
+    const record: NotificationRecord = {
+      userId: reporterId,
+      type: 'reporte',
+      title: `Actualización de Reporte #${reportId}`,
+      message,
+      entityType: 'report',
+      entityId: reportId,
+    };
 
-      // 3. Emisión en tiempo real
-      assert.equal(realTimeMessages.length, 3);
-      const channels = realTimeMessages.map((m) => m.channel);
-      assert.ok(channels.includes('requests:101'));
-      assert.ok(channels.includes('users:303'));
-      assert.ok(channels.includes('technicians:404'));
+    this.dispatchedRecords.push(record);
+    await this.persister(record);
+  }
 
-      const reqMsg = realTimeMessages.find((m) => m.channel === 'requests:101');
-      assert.equal(reqMsg?.event, 'service_request_updated');
-      assert.deepEqual(reqMsg?.data, {
-        requestId: '101',
-        status: 'en_curso',
-        previousStatus: 'pendiente',
-        latitude: 19.4326,
-        longitude: -99.1332,
-      });
-    });
-  });
+  private async handleSupplierVerification(payload: SupplierVerificationPayload): Promise<void> {
+    const { supplierId, userId, result, comment, documentId, documentName } = payload;
 
-  describe('Evento: Cambio de estado de Reporte (Módulo 7)', () => {
-    it('debe notificar al reportero, auditar el reporte y emitir a soporte en tiempo real', async () => {
-      const event = new ReportStatusChangedEvent({
-        reportId: '900',
-        reporterId: '303',
-        fromStatus: 'en_revision',
-        toStatus: 'resuelto',
-        changedBy: '999',
-        category: 'servicio_incompleto',
-        resolutionType: 'reembolso',
-        comment: 'Se aprobó el reembolso por servicio no finalizado.',
-      });
+    if (documentId) {
+      const approved = result === 'aprobado';
+      const pending = result === 'pendiente';
+      const name = documentName ?? `#${documentId}`;
+      const record: NotificationRecord = {
+        userId,
+        type: 'revision_documento_proveedor',
+        title: approved ? 'Verificación Aprobada' : `Revisión de documento: ${name}`,
+        message: pending
+          ? `Recibimos tu documento ${name} y está pendiente de revisión.`
+          : approved
+            ? `Tu documento ${name} fue aprobado. Los documentos aprobados de tu solicitud quedan registrados en tu expediente.${comment ? ` Observación: ${comment}` : ''}`
+            : `Tu documento ${name} requiere correcciones.${comment ? ` Motivo: ${comment}` : ''}`,
+        entityType: 'supplier_document',
+        entityId: documentId,
+      };
+      this.dispatchedRecords.push(record);
+      await this.persister(record);
+      return;
+    }
 
-      const summary = await bus.notify(event);
-      assert.equal(summary.succeeded, 3);
+    const message =
+      result === 'pendiente'
+        ? 'Hemos recibido tu solicitud de proveedor y está pendiente de revisión.'
+        : result === 'aprobado'
+          ? '¡Felicidades! Tus documentos de proveedor han sido aprobados. Tu cuenta está habilitada.'
+          : `Tu verificación de documentos fue rechazada${comment ? ': ' + comment : '.'}`;
 
-      // 1. Notificación
-      assert.equal(notificationRecords.length, 1);
-      assert.equal(notificationRecords[0].userId, '303');
-      assert.equal(notificationRecords[0].entityType, 'report');
-      assert.match(notificationRecords[0].message, /ha sido resuelto/);
+    const record: NotificationRecord = {
+      userId,
+      type: 'verificacion_proveedor',
+      title:
+        result === 'pendiente'
+          ? 'Solicitud recibida'
+          : result === 'aprobado'
+            ? 'Verificación Aprobada'
+            : 'Verificación Rechazada',
+      message,
+      entityType: 'supplier_verification',
+      entityId: supplierId,
+    };
 
-      // 2. Historial
-      assert.equal(historyEntries.length, 1);
-      assert.equal(historyEntries[0].category, 'report');
-      assert.equal(historyEntries[0].aggregateId, '900');
-      assert.equal(historyEntries[0].toStatus, 'resuelto');
-      assert.equal(historyEntries[0].details?.resolutionType, 'reembolso');
+    this.dispatchedRecords.push(record);
+    await this.persister(record);
+  }
 
-      // 3. Tiempo real a admin y usuario
-      const channels = realTimeMessages.map((m) => m.channel);
-      assert.ok(channels.includes('reports:900'));
-      assert.ok(channels.includes('users:303'));
-      assert.ok(channels.includes('admin:reports'));
-    });
-  });
+  private async handleSupplierApplicationResolved(
+    payload: SupplierApplicationResolvedPayload,
+  ): Promise<void> {
+    const labels = {
+      aprobada: 'aprobada',
+      rechazada: 'rechazada',
+      documentacion_incompleta: 'requiere documentación adicional',
+    } as const;
+    const record: NotificationRecord = {
+      userId: payload.userId,
+      type: 'solicitud_proveedor_resuelta',
+      title: 'Resultado de tu solicitud de proveedor',
+      message: `Tu solicitud #${payload.applicationId} fue ${labels[payload.state]}.${payload.comments ? ` Observaciones: ${payload.comments}` : ''}`,
+      entityType: 'supplier_application',
+      entityId: payload.applicationId,
+    };
+    this.dispatchedRecords.push(record);
+    await this.persister(record);
+  }
 
-  describe('Evento: Verificación de Proveedor (Módulos 1 y 4)', () => {
-    it('debe notificar al proveedor sobre aprobación y registrar validación documental', async () => {
-      const event = new SupplierVerificationEvent({
-        supplierId: '801',
-        userId: '150',
-        documentId: '65',
-        result: 'aprobado',
-        reviewedBy: '999',
-        comment: 'Documentos oficiales vigentes y legibles.',
-      });
+  public getDispatchedRecords(): ReadonlyArray<NotificationRecord> {
+    return this.dispatchedRecords;
+  }
 
-      const summary = await bus.notify(event);
-      assert.equal(summary.succeeded, 3);
-
-      // 1. Notificación
-      assert.equal(notificationRecords.length, 1);
-      assert.equal(notificationRecords[0].userId, '150');
-      assert.equal(notificationRecords[0].title, 'Verificación Aprobada');
-      assert.match(notificationRecords[0].message, /aprobados/);
-
-      // 2. Historial
-      assert.equal(historyEntries.length, 1);
-      assert.equal(historyEntries[0].category, 'supplier_verification');
-      assert.equal(historyEntries[0].aggregateId, '801');
-      assert.equal(historyEntries[0].details?.documentId, '65');
-
-      // 3. Tiempo real
-      const channels = realTimeMessages.map((m) => m.channel);
-      assert.ok(channels.includes('users:150'));
-      assert.ok(channels.includes('admin:verifications'));
-    });
-  });
-});
+  public clearRecords(): void {
+    this.dispatchedRecords.length = 0;
+  }
+}

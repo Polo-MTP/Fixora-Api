@@ -77,8 +77,10 @@ export class NotificationObserver implements Observer<DomainEvent> {
 
     if (toStatus === 'aceptada') {
       message = '¡Un profesional ha aceptado tu solicitud de servicio!';
-    } else if (toStatus === 'en_curso') {
-      message = 'El técnico está en camino o atendiendo tu servicio en tu domicilio.';
+    } else if (toStatus === 'en_curso' || toStatus === 'en_camino') {
+      message = 'El técnico está en camino a tu domicilio.';
+    } else if (toStatus === 'llegado') {
+      message = 'El técnico ha llegado a tu domicilio.';
     } else if (toStatus === 'completada') {
       message = 'Tu servicio ha sido marcado como completado. ¡No olvides calificar la atención!';
     } else if (toStatus === 'cancelada') {

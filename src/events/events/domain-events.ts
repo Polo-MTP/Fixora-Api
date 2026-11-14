@@ -45,6 +45,8 @@ export interface ServiceRequestStatusChangedPayload {
   latitude?: number | null;
   longitude?: number | null;
   reason?: string | null;
+  /** La transacción de dominio ya insertó service_request_events. */
+  historyPersisted?: boolean;
 }
 
 export class ServiceRequestStatusChangedEvent extends BaseDomainEvent<ServiceRequestStatusChangedPayload> {

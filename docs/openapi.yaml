@@ -41,7 +41,7 @@ info:
     también `x-estado: planeado` y `x-ticket`.
 
 servers:
-  - url: http://localhost:3001
+  - url: http://localhost:3000
     description: Servidor local de desarrollo
 
 tags:
@@ -1893,7 +1893,7 @@ paths:
                 message: El correo ya está registrado.
 
   # ==========================================================================
-  # Planeados · Módulo 3: sucursal, empleados, categorías, portafolio y ficha
+  # Sucursales: empleados, categorías, portafolio y ficha
   # ==========================================================================
 
   /api/branches/{id}/employees:
@@ -1902,10 +1902,9 @@ paths:
     get:
       tags:
         - Sucursales
-      summary: '[Planeado · API-19] Listar empleados de una sucursal'
-      description: Para el proveedor dueño y el gerente de la sucursal.
-      x-estado: planeado
-      x-ticket: API-19
+      summary: Listar empleados de una sucursal
+      description: El proveedor dueño y el gerente asignado a la sucursal pueden consultar sus empleados activos.
+      operationId: listBranchEmployees
       security:
         - bearerAuth: []
       responses:
@@ -1931,10 +1930,9 @@ paths:
     post:
       tags:
         - Sucursales
-      summary: '[Planeado · API-19] Dar de alta un empleado'
-      description: Crea su usuario (gerente o empleado) y lo asigna a la sucursal.
-      x-estado: planeado
-      x-ticket: API-19
+      summary: Dar de alta un empleado
+      description: El proveedor dueño de la sucursal crea una cuenta activa con rol gerente o empleado y la asigna a esa sucursal.
+      operationId: createBranchEmployee
       security:
         - bearerAuth: []
       requestBody:
@@ -1943,6 +1941,14 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/EmployeeInput'
+            example:
+              email: empleado@ejemplo.com
+              password: Empleado123*
+              name: Ana
+              lastname_p: López
+              lastname_m: García
+              phone: '8712345678'
+              role: empleado
       responses:
         '201':
           description: Empleado creado.
@@ -1961,6 +1967,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           description: El correo ya está registrado (`EMAIL_ALREADY_REGISTERED`).
           content:
@@ -2405,9 +2413,9 @@ paths:
     get:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-27] Horarios libres para agendar'
+      summary: 'Horarios libres para agendar'
       description: Según el horario de la sucursal, los bloqueos de sus técnicos y la duración de la categoría.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-27
       security:
         - bearerAuth: []
@@ -2448,11 +2456,11 @@ paths:
     get:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-26] Listar mis solicitudes'
+      summary: 'Listar mis solicitudes'
       description: |
         El cliente ve las suyas; el proveedor y el gerente, las de sus sucursales; el empleado, las
         que tiene asignadas o le llegaron.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-26
       security:
         - bearerAuth: []
@@ -2481,15 +2489,17 @@ paths:
                         $ref: '#/components/schemas/Pagination'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-27] Crear una solicitud normal o agendada'
+      summary: 'Crear una solicitud normal o agendada'
       description: |
         Sin `scheduled_at` queda `pendiente` y corre el temporizador de 5 minutos (`expires_at`).
         Con `scheduled_at` también espera la respuesta del proveedor; al aceptarla pasa a `agendada`.
         `client_uuid` evita duplicados si la app reintenta: con el mismo valor se regresa la misma solicitud.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-27
       security:
         - bearerAuth: []
@@ -2569,8 +2579,8 @@ paths:
     get:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-26] Ver una solicitud'
-      x-estado: planeado
+      summary: 'Ver una solicitud'
+      x-estado: implementado
       x-ticket: API-26
       security:
         - bearerAuth: []
@@ -2686,12 +2696,12 @@ paths:
     post:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-26] Avanzar el estado (técnico)'
+      summary: 'Avanzar el estado (técnico)'
       description: |
         Transiciones permitidas: `aceptada`/`agendada` → `en_camino` → `llegado` → `completada`.
         Guarda la ubicación del técnico como punto clave en el historial. Emite el evento del
         cambio de estado.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-26
       security:
         - bearerAuth: []
@@ -2774,7 +2784,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: Ya está completada, cancelada o expirada (`REQUEST_ALREADY_CLOSED`).
+          description: La transición no está permitida desde el estado actual (`INVALID_STATUS_TRANSITION`).
           content:
             application/json:
               schema:
@@ -2786,9 +2796,9 @@ paths:
     get:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-26] Historial de la solicitud'
+      summary: 'Historial de la solicitud'
       description: Cada cambio de estado con quién lo hizo, cuándo y, si aplica, dónde.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-26
       security:
         - bearerAuth: []
@@ -3358,51 +3368,50 @@ components:
         - error
         - message
 
-
     AdminStaffCreate:
-          type: object
-          required:
-            - email
-            - password
-            - name
-            - lastname_p
-            - role
-          properties:
-            email:
-              type: string
-              format: email
-              maxLength: 255
-            password:
-              type: string
-              format: password
-              minLength: 8
-              maxLength: 72
-            name:
-              type: string
-              maxLength: 100
-            lastname_p:
-              type: string
-              maxLength: 100
-            lastname_m:
-              type:
-                - string
-                - 'null'
-              maxLength: 100
-            role:
-              type: string
-              enum:
-                - administrador
-                - soporte
-            birth_date:
-              type:
-                - string
-                - 'null'
-              format: date
-            phone:
-              type:
-                - string
-                - 'null'
-              pattern: '^[0-9]{10}$'
+      type: object
+      required:
+        - email
+        - password
+        - name
+        - lastname_p
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+        name:
+          type: string
+          maxLength: 100
+        lastname_p:
+          type: string
+          maxLength: 100
+        lastname_m:
+          type:
+            - string
+            - 'null'
+          maxLength: 100
+        role:
+          type: string
+          enum:
+            - administrador
+            - soporte
+        birth_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        phone:
+          type:
+            - string
+            - 'null'
+          pattern: '^[0-9]{10}$'
 
     AdminStaffResponse:
       type: object
@@ -4687,8 +4696,8 @@ components:
     ServiceRequestStatus:
       type: string
       description: |
-        `en_camino` y `llegado` requieren migración: hoy el enum de la base tiene `en_curso` en su
-        lugar. El contrato usa los pasos que muestra la app.
+        `en_camino` y `llegado` se almacenan como estados independientes. Los registros históricos
+        con `en_curso` se exponen como `en_camino` por compatibilidad.
       enum:
         - pendiente
         - aceptada
@@ -4727,7 +4736,7 @@ components:
           type: string
         description:
           type: string
-          minLength: 5
+          minLength: 1
           maxLength: 2000
         address_id:
           type: string

@@ -92,7 +92,7 @@ export class HistoryObserver implements Observer<DomainEvent> {
           createdAt: event.occurredOn,
         };
         this.historyEntries.push(entry);
-        await this.persister(entry);
+        if (!payload.historyPersisted) await this.persister(entry);
         break;
       }
       case DOMAIN_EVENTS.REPORT_STATUS_CHANGED: {

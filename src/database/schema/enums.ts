@@ -46,6 +46,8 @@ export const serviceRequestStatusEnum = pgEnum('service_request_status', [
   'aceptada',
   'agendada',
   'en_curso',
+  'en_camino',
+  'llegado',
   'completada',
   'cancelada',
   'expirada',
