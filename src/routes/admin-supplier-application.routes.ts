@@ -9,17 +9,17 @@ export const adminSupplierApplicationsRouter = Router();
 adminSupplierApplicationsRouter.use(authenticateToken, authorizeRoles('administrador'));
 
 adminSupplierApplicationsRouter.get('/supplier-applications', (req, res, next) =>
-    adminSupplierApplicationController.list(req, res, next),
+  adminSupplierApplicationController.list(req, res, next),
 );
 
 adminSupplierApplicationsRouter.get('/supplier-applications/:id', (req, res, next) =>
-    adminSupplierApplicationController.getById(req, res, next),
+  adminSupplierApplicationController.getById(req, res, next),
 );
 
 adminSupplierApplicationsRouter.post('/supplier-applications/:id/resolution', (req, res, next) =>
-    adminSupplierApplicationController.resolve(req, res, next),
+  adminSupplierApplicationController.resolve(req, res, next),
 );
 
 adminSupplierApplicationsRouter.patch('/supplier-documents/:id', (req, res, next) =>
-    adminSupplierApplicationController.reviewDocument(req, res, next),
+  adminSupplierApplicationController.reviewDocument(req, res, next),
 );

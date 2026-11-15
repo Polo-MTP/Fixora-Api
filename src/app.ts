@@ -2,6 +2,7 @@ import './utils/bigint-serializer.ts';
 import 'dotenv/config';
 
 import express, { type Request, type Response } from 'express';
+import { createServer } from 'node:http';
 import cors from 'cors';
 
 import { ENV } from './config/env.ts';
@@ -22,6 +23,7 @@ import serviceRequestRoutes from './routes/service-request-status.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
+import { attachWebSocketServer } from './realtime/websocket.server.ts';
 
 // Inicializar observadores del patrón Observer (Módulos 1 y 5)
 setupDomainEventObservers();
@@ -90,14 +92,17 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 const port = ENV.PORT;
+const httpServer = createServer(app);
+attachWebSocketServer(httpServer);
 
 async function startServer() {
   try {
     connectRedis();
 
-    app.listen(port, () => {
+    httpServer.listen(port, () => {
       console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);
       console.log(`Documentación: http://localhost:${port}/api/docs`);
+      console.log(`WebSocket: ws://localhost:${port}/ws`);
 
       if (ENV.NODE_ENV !== 'production') {
         console.log(`Usuarios de prueba: http://localhost:${port}/api/dev/users`);

@@ -2,10 +2,10 @@ import { Router } from 'express';
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
 import { createServiceRequestController } from '../controllers/service-request-creation.controller.ts';
 import {
-    changeServiceRequestStatus,
-    getOneServiceRequest,
-    listMyServiceRequests,
-    listServiceRequestEvents,
+  changeServiceRequestStatus,
+  getOneServiceRequest,
+  listMyServiceRequests,
+  listServiceRequestEvents,
 } from '../controllers/service-request-status.controller.ts';
 
 const router = Router();
