@@ -37,6 +37,8 @@ export function setupDomainEventObservers(
   // Registrar observadores para los eventos de dominio principales
   const domainEventTypes = [
     DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED,
+    DOMAIN_EVENTS.SERVICE_REQUEST_DISPATCHED,
+    DOMAIN_EVENTS.SERVICE_REQUEST_REJECTED,
     DOMAIN_EVENTS.REPORT_STATUS_CHANGED,
     DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED,
   ];

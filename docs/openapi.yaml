@@ -2533,11 +2533,14 @@ paths:
     post:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-28] Botón de emergencia'
+      summary: 'Botón de emergencia (API-28)'
       description: |
         Solo pide la categoría y la ubicación actual. Se avisa a la vez a los técnicos cercanos
-        disponibles; el primero que acepta se queda con la solicitud y a los demás se les retira.
-      x-estado: planeado
+        disponibles de sucursales que atienden esa categoría y están dentro de 10 km. Se priorizan
+        proveedores independientes y después calificación y distancia. Cada técnico notificado
+        queda registrado en `request_dispatches`. La asignación ocurre cuando un técnico acepta
+        mediante API-30; los demás despachos se retiran en esa aceptación.
+      x-estado: implementado
       x-ticket: API-28
       security:
         - bearerAuth: []
@@ -2569,6 +2572,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: NO_TECHNICIANS_AVAILABLE
+                message: No hay técnicos disponibles cerca para esta categoría.
 
   /api/service-requests/{id}:
     parameters:
@@ -2606,13 +2612,14 @@ paths:
     post:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-30] Aceptar una solicitud (proveedor)'
-      description: Detiene el temporizador. Emite el evento «solicitud aceptada».
-      x-estado: planeado
+      summary: 'Aceptar una solicitud (proveedor)'
+      description: Asigna el técnico, fija el precio acordado y la fecha de aceptación, detiene el temporizador y emite el evento «solicitud aceptada».
+      x-estado: implementado
       x-ticket: API-30
       security:
         - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -2620,7 +2627,9 @@ paths:
               properties:
                 employee_id:
                   type: string
-                  description: Técnico que atenderá. Si no viene, el que aceptó.
+                  description: Identificador del técnico que atenderá.
+              required:
+                - employee_id
       responses:
         '200':
           description: Solicitud aceptada.
@@ -2652,13 +2661,14 @@ paths:
     post:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-30] Rechazar una solicitud (proveedor)'
-      description: En una emergencia solo la retira para ese técnico; en una normal, avisa al cliente para que elija otro.
-      x-estado: planeado
+      summary: 'Rechazar una solicitud (proveedor)'
+      description: Registra el rechazo en el despacho. En emergencias solo retira la solicitud para el técnico; en solicitudes normales notifica al cliente para que elija otro proveedor.
+      x-estado: implementado
       x-ticket: API-30
       security:
         - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -2666,7 +2676,10 @@ paths:
               properties:
                 reason:
                   type: string
+                  minLength: 1
                   maxLength: 500
+              required:
+                - reason
       responses:
         '200':
           description: Solicitud rechazada.
@@ -2741,21 +2754,38 @@ paths:
     post:
       tags:
         - Solicitudes de servicio
-      summary: '[Planeado · API-31] Cancelar una solicitud'
+      summary: Cancelar una solicitud 
       description: |
-        El cliente puede cancelar mientras esté `pendiente` sin dar motivo. Después de aceptada,
-        quien cancele debe dar motivo; el proveedor además puede adjuntar evidencia (subida antes
-        con `POST /api/files/upload`, `category` = `evidences`). Sin evidencia, el proveedor
-        recibe la penalización del módulo 12.
-      x-estado: planeado
+        El cliente puede cancelar una solicitud pendiente sin motivo. Después de la aceptación,
+        tanto el cliente como el proveedor deben indicar un motivo. El proveedor o técnico asignado
+        puede adjuntar hasta cinco evidencias previamente subidas mediante POST /api/files/upload
+        con category=evidences. Si el proveedor cancela sin evidencia, la cancelación queda
+        registrada como injustificada para el cálculo de reputación; la sanción formal se gestiona
+        posteriormente en el work item de sanciones del Sprint 6.
+      x-estado: implementado
       x-ticket: API-31
       security:
         - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CancelRequest'
+            examples:
+              cancelacionPendienteCliente:
+                summary: Cliente cancela antes de aceptación
+                value: {}
+              cancelacionDespuesDeAceptar:
+                summary: Cliente o proveedor cancela después de aceptación
+                value:
+                  reason: El servicio ya no será necesario.
+              cancelacionProveedorConEvidencia:
+                summary: Proveedor adjunta evidencia
+                value:
+                  reason: El domicilio no permite realizar el trabajo de forma segura.
+                  evidence_keys:
+                    - evidences/42/2026/11/evidencia-cancelacion.jpg
       responses:
         '200':
           description: Solicitud cancelada.
@@ -2769,7 +2799,7 @@ paths:
                       data:
                         $ref: '#/components/schemas/ServiceRequest'
         '400':
-          description: Falta el motivo después de aceptada (`CANCEL_REASON_REQUIRED`).
+          description: Motivo faltante o datos/evidencias inválidos.
           content:
             application/json:
               schema:
@@ -4832,9 +4862,23 @@ components:
                 - number
                 - 'null'
         address:
-          $ref: '#/components/schemas/Address'
+          oneOf:
+            - $ref: '#/components/schemas/Address'
+            - type: 'null'
+          description: En emergencias, la ubicación actual se expone en `location`.
+        location:
+          type:
+            - object
+            - 'null'
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
         base_price:
-          $ref: '#/components/schemas/Money'
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
         agreed_price:
           oneOf:
             - $ref: '#/components/schemas/Money'
@@ -4911,15 +4955,21 @@ components:
 
     CancelRequest:
       type: object
+      additionalProperties: false
       properties:
         reason:
           type: string
-          maxLength: 1000
+          minLength: 1
+          maxLength: 500
+          description: Obligatorio cuando la solicitud ya fue aceptada.
         evidence_keys:
           type: array
           maxItems: 5
+          uniqueItems: true
           items:
             type: string
+            maxLength: 500
+          description: Llaves de archivos subidos por el proveedor/técnico en la categoría evidences.
 
     ServiceRequestEvent:
       type: object

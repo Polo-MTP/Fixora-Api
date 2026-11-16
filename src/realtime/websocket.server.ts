@@ -163,7 +163,7 @@ async function canJoinRequestRoom(
         .limit(1);
       if (dispatch) return true;
     }
-    if (normalizedRole === 'gerente' && assignments.length) {
+    if (normalizedRole === 'gerente' && assignments.length && request.branchId !== null) {
       const [branchAssignment] = await db
         .select({ id: employees.UniqueID })
         .from(employees)
@@ -179,7 +179,7 @@ async function canJoinRequestRoom(
     }
   }
 
-  if (normalizedRole === 'proveedor') {
+  if (normalizedRole === 'proveedor' && request.branchId !== null) {
     const [ownedBranch] = await db
       .select({ id: branches.UniqueID })
       .from(branches)

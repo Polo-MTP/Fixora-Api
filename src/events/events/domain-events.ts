@@ -3,6 +3,8 @@ import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
 
 export const DOMAIN_EVENTS = {
   SERVICE_REQUEST_STATUS_CHANGED: 'service_request.status_changed',
+  SERVICE_REQUEST_DISPATCHED: 'service_request.dispatched',
+  SERVICE_REQUEST_REJECTED: 'service_request.rejected',
   REPORT_STATUS_CHANGED: 'report.status_changed',
   SUPPLIER_VERIFICATION_CHANGED: 'supplier.verification_changed',
   SUPPLIER_APPLICATION_RESOLVED: 'supplier.application_resolved',
@@ -42,7 +44,7 @@ export interface ServiceRequestStatusChangedPayload {
   changedBy: string;
   clientId: string;
   employeeId?: string | null;
-  branchId: string;
+  branchId: string | null;
   latitude?: number | null;
   longitude?: number | null;
   reason?: string | null;
@@ -59,6 +61,47 @@ export class ServiceRequestStatusChangedEvent extends BaseDomainEvent<ServiceReq
       eventId,
       occurredOn,
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 1.1 Despacho de solicitud de emergencia (API-28)
+// ---------------------------------------------------------------------------
+
+export interface ServiceRequestDispatchedPayload {
+  requestId: string;
+  categoryId: string;
+  categoryName: string;
+  latitude: number;
+  longitude: number;
+  recipientUserIds: string[];
+  employeeIds: string[];
+  radiusKm: number;
+}
+
+export class ServiceRequestDispatchedEvent extends BaseDomainEvent<ServiceRequestDispatchedPayload> {
+  constructor(payload: ServiceRequestDispatchedPayload, eventId?: string, occurredOn?: Date) {
+    super(
+      DOMAIN_EVENTS.SERVICE_REQUEST_DISPATCHED,
+      payload.requestId,
+      payload,
+      eventId,
+      occurredOn,
+    );
+  }
+}
+
+export interface ServiceRequestRejectedPayload {
+  requestId: string;
+  clientId: string;
+  employeeIds: string[];
+  reason: string;
+  isEmergency: boolean;
+}
+
+export class ServiceRequestRejectedEvent extends BaseDomainEvent<ServiceRequestRejectedPayload> {
+  constructor(payload: ServiceRequestRejectedPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.SERVICE_REQUEST_REJECTED, payload.requestId, payload, eventId, occurredOn);
   }
 }
 

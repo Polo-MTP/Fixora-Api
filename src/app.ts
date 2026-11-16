@@ -24,6 +24,7 @@ import serviceRequestRoutes from './routes/service-request-status.routes.ts';
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
 import { attachWebSocketServer } from './realtime/websocket.server.ts';
+import { serviceRequestExpirationService } from './services/service-request-expiration.service.ts';
 
 // Inicializar observadores del patrón Observer (Módulos 1 y 5)
 setupDomainEventObservers();
@@ -98,6 +99,9 @@ attachWebSocketServer(httpServer);
 async function startServer() {
   try {
     connectRedis();
+    void serviceRequestExpirationService.start().catch((error) => {
+      console.error('No se pudo iniciar el worker de expiración:', error);
+    });
 
     httpServer.listen(port, () => {
       console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);
