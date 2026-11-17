@@ -36,6 +36,20 @@
       "when": 1793760206686,
       "tag": "0004_add_documentacion_incompleta",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793760207686,
+      "tag": "0005_api26_service_request_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793760208686,
+      "tag": "0006_api27_service_request_idempotency",
+      "breakpoints": true
     }
   ]
 }
