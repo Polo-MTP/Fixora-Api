@@ -4,6 +4,7 @@ import {
   createServiceRequest,
   getBranchAvailability,
 } from '../services/service-request-creation.service.ts';
+import { createEmergencyServiceRequest } from '../services/service-request-emergency.service.ts';
 
 function parseId(value: unknown, field: string): bigint {
   if (typeof value !== 'string' || !/^[1-9]\d{0,17}$/.test(value)) {
@@ -27,6 +28,23 @@ export async function createServiceRequestController(
     return res.status(201).json({
       success: true,
       message: 'Solicitud enviada al proveedor.',
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function createEmergencyServiceRequestController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const data = await createEmergencyServiceRequest(actorFromRequest(req), req.body);
+    return res.status(201).json({
+      success: true,
+      message: 'Emergencia enviada a los técnicos cercanos.',
       data,
     });
   } catch (error) {

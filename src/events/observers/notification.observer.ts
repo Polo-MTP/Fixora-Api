@@ -4,6 +4,8 @@ import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
 import {
   DOMAIN_EVENTS,
   type ServiceRequestStatusChangedPayload,
+  type ServiceRequestDispatchedPayload,
+  type ServiceRequestRejectedPayload,
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
@@ -95,6 +97,12 @@ export class NotificationObserver implements Observer<DomainEvent> {
       case DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED:
         await this.handleServiceRequest(event.payload as ServiceRequestStatusChangedPayload);
         break;
+      case DOMAIN_EVENTS.SERVICE_REQUEST_DISPATCHED:
+        await this.handleServiceRequestDispatched(event.payload as ServiceRequestDispatchedPayload);
+        break;
+      case DOMAIN_EVENTS.SERVICE_REQUEST_REJECTED:
+        await this.handleServiceRequestRejected(event.payload as ServiceRequestRejectedPayload);
+        break;
       case DOMAIN_EVENTS.REPORT_STATUS_CHANGED:
         await this.handleReport(event.payload as ReportStatusChangedPayload);
         break;
@@ -136,6 +144,9 @@ export class NotificationObserver implements Observer<DomainEvent> {
       message = 'Tu servicio ha sido marcado como completado. ¡No olvides calificar la atención!';
     } else if (toStatus === 'cancelada') {
       message = `Tu solicitud fue cancelada${reason ? ': ' + reason : '.'}`;
+    } else if (toStatus === 'expirada') {
+      message =
+        'Tu solicitud expiró porque ningún técnico la aceptó dentro de los 5 minutos. Puedes crear una nueva solicitud.';
     }
 
     await this.dispatch({
@@ -146,6 +157,37 @@ export class NotificationObserver implements Observer<DomainEvent> {
       entityType: 'service_request',
       entityId: requestId,
     });
+  }
+
+  private async handleServiceRequestRejected(
+    payload: ServiceRequestRejectedPayload,
+  ): Promise<void> {
+    if (payload.isEmergency) return;
+    await this.dispatch({
+      userId: payload.clientId,
+      type: 'solicitud_rechazada_proveedor',
+      title: `Respuesta a tu solicitud #${payload.requestId}`,
+      message: `El proveedor rechazó la solicitud${payload.reason ? `: ${payload.reason}` : '.'} Puedes elegir otro proveedor.`,
+      entityType: 'service_request',
+      entityId: payload.requestId,
+    });
+  }
+
+  private async handleServiceRequestDispatched(
+    payload: ServiceRequestDispatchedPayload,
+  ): Promise<void> {
+    await Promise.all(
+      payload.recipientUserIds.map((userId) =>
+        this.dispatch({
+          userId,
+          type: 'solicitud_emergencia_disponible',
+          title: 'Nueva solicitud de emergencia cercana',
+          message: `Hay una solicitud de emergencia de ${payload.categoryName} a menos de ${payload.radiusKm} km.`,
+          entityType: 'service_request',
+          entityId: payload.requestId,
+        }),
+      ),
+    );
   }
 
   private async handleReport(payload: ReportStatusChangedPayload): Promise<void> {

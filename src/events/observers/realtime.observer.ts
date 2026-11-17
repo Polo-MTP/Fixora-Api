@@ -4,6 +4,8 @@ import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
 import {
   DOMAIN_EVENTS,
   type ServiceRequestStatusChangedPayload,
+  type ServiceRequestDispatchedPayload,
+  type ServiceRequestRejectedPayload,
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
@@ -36,8 +38,8 @@ export class RealTimeObserver implements Observer<DomainEvent> {
 
         const channels = [`requests:${payload.requestId}`, `users:${payload.clientId}`];
 
-        // Una solicitud recién creada se publica en el canal de la sucursal para que el portal del proveedor la reciba.
-        if (payload.fromStatus === null) {
+        // Las solicitudes normales se publican en el canal de su sucursal.
+        if (payload.fromStatus === null && payload.branchId) {
           channels.push(`branches:${payload.branchId}`);
         }
 
@@ -59,6 +61,53 @@ export class RealTimeObserver implements Observer<DomainEvent> {
             timestamp,
           });
         }
+        break;
+      }
+
+      case DOMAIN_EVENTS.SERVICE_REQUEST_REJECTED: {
+        const payload = event.payload as ServiceRequestRejectedPayload;
+        if (!payload.isEmergency) {
+          await this.emitMessage({
+            channel: `users:${payload.clientId}`,
+            event: 'service_request_rejected',
+            data: {
+              requestId: payload.requestId,
+              reason: payload.reason,
+              canChooseAnotherSupplier: true,
+            },
+            timestamp,
+          });
+        }
+        for (const employeeId of payload.employeeIds) {
+          await this.emitMessage({
+            channel: `technicians:${employeeId}`,
+            event: 'service_request_rejection_recorded',
+            data: { requestId: payload.requestId, isEmergency: payload.isEmergency },
+            timestamp,
+          });
+        }
+        break;
+      }
+
+      case DOMAIN_EVENTS.SERVICE_REQUEST_DISPATCHED: {
+        const payload = event.payload as ServiceRequestDispatchedPayload;
+        await Promise.all(
+          payload.recipientUserIds.map((userId) =>
+            this.emitMessage({
+              channel: `users:${userId}`,
+              event: 'emergency_request_available',
+              data: {
+                requestId: payload.requestId,
+                categoryId: payload.categoryId,
+                categoryName: payload.categoryName,
+                latitude: payload.latitude,
+                longitude: payload.longitude,
+                radiusKm: payload.radiusKm,
+              },
+              timestamp,
+            }),
+          ),
+        );
         break;
       }
 

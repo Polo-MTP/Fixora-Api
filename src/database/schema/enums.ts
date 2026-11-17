@@ -96,7 +96,12 @@ export const incomeRecordStatusEnum = pgEnum('income_record_status', ['pendiente
 
 export const commissionStatusEnum = pgEnum('commission_status', ['pendiente', 'pagada']);
 
-export const dispatchResponseEnum = pgEnum('dispatch_response', ['acepto', 'rechazo', 'expiro']);
+export const dispatchResponseEnum = pgEnum('dispatch_response', [
+  'acepto',
+  'rechazo',
+  'expiro',
+  'retirado',
+]);
 
 // Reseñas y reportes
 export const reviewDirectionEnum = pgEnum('review_direction', [

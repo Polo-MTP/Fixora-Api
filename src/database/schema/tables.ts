@@ -394,13 +394,14 @@ export const service_requests = pgTable(
     category_id: bigint('category_id', { mode: 'bigint' })
       .notNull()
       .references(() => categories.UniqueID),
-    branch_id: bigint('branch_id', { mode: 'bigint' })
-      .notNull()
-      .references(() => branches.UniqueID),
-    address_id: bigint('address_id', { mode: 'bigint' })
-      .notNull()
-      .references(() => addresses.UniqueID),
+    // En emergencias permanece null hasta que un técnico acepte y se asigne su sucursal.
+    branch_id: bigint('branch_id', { mode: 'bigint' }).references(() => branches.UniqueID),
+    // Las emergencias usan coordenadas puntuales y no requieren una dirección postal.
+    address_id: bigint('address_id', { mode: 'bigint' }).references(() => addresses.UniqueID),
     employee_id: bigint('employee_id', { mode: 'bigint' }).references(() => employees.UniqueID),
+    // Coordenadas puntuales recibidas al crear una emergencia.
+    latitude: numeric('latitude', { precision: 10, scale: 7 }),
+    longitude: numeric('longitude', { precision: 10, scale: 7 }),
     is_emergency: boolean('is_emergency').notNull().default(false),
     description: text('description').notNull(),
     status: serviceRequestStatusEnum('status').notNull().default('pendiente'),

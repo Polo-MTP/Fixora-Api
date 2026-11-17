@@ -270,7 +270,7 @@ function signedFileUrl(fileKey: string | null | undefined): string | null {
   }
 }
 
-async function serializeRequest(requestId: bigint) {
+export async function serializeServiceRequestForResponse(requestId: bigint) {
   const [request] = await db
     .select()
     .from(service_requests)
@@ -283,23 +283,29 @@ async function serializeRequest(requestId: bigint) {
     .from(categories)
     .where(eq(categories.UniqueID, request.category_id))
     .limit(1);
-  const [branch] = await db
-    .select()
-    .from(branches)
-    .where(eq(branches.UniqueID, request.branch_id))
-    .limit(1);
-  const [addressRow] = await db
-    .select({ address: addresses, alias: address_user.alias, isMain: address_user.is_main })
-    .from(addresses)
-    .leftJoin(
-      address_user,
-      and(
-        eq(address_user.address_id, addresses.UniqueID),
-        eq(address_user.user_id, request.client_id),
-      ),
-    )
-    .where(eq(addresses.UniqueID, request.address_id))
-    .limit(1);
+  const [branch] = request.branch_id
+    ? await db.select().from(branches).where(eq(branches.UniqueID, request.branch_id)).limit(1)
+    : [undefined];
+  let address: typeof addresses.$inferSelect | null = null;
+  let addressAlias: string | null = null;
+  let addressIsMain = false;
+  if (request.address_id) {
+    const [addressRow] = await db
+      .select({ address: addresses, alias: address_user.alias, isMain: address_user.is_main })
+      .from(addresses)
+      .leftJoin(
+        address_user,
+        and(
+          eq(address_user.address_id, addresses.UniqueID),
+          eq(address_user.user_id, request.client_id),
+        ),
+      )
+      .where(eq(addresses.UniqueID, request.address_id))
+      .limit(1);
+    address = addressRow?.address ?? null;
+    addressAlias = addressRow?.alias ?? null;
+    addressIsMain = addressRow?.isMain ?? false;
+  }
   const [client] = await db
     .select()
     .from(personal_data)
@@ -315,17 +321,19 @@ async function serializeRequest(requestId: bigint) {
         eq(reviews.status, 'publicada'),
       ),
     );
-  const [price] = await db
-    .select({ amount: branches_categories.base_price })
-    .from(branches_categories)
-    .where(
-      and(
-        eq(branches_categories.branch_id, request.branch_id),
-        eq(branches_categories.category_id, request.category_id),
-        eq(branches_categories.active, true),
-      ),
-    )
-    .limit(1);
+  const [price] = request.branch_id
+    ? await db
+      .select({ amount: branches_categories.base_price })
+      .from(branches_categories)
+      .where(
+        and(
+          eq(branches_categories.branch_id, request.branch_id),
+          eq(branches_categories.category_id, request.category_id),
+          eq(branches_categories.active, true),
+        ),
+      )
+      .limit(1)
+    : [undefined];
 
   let technician: { employee_id: string; name: string; photo_url: string | null } | null = null;
   if (request.employee_id) {
@@ -358,8 +366,6 @@ async function serializeRequest(requestId: bigint) {
     .from(request_attachments)
     .where(eq(request_attachments.request_id, requestId))
     .orderBy(asc(request_attachments.created_at));
-  const address = addressRow?.address;
-
   return {
     id: request.UniqueID.toString(),
     status: publicStatus(request.status),
@@ -376,22 +382,29 @@ async function serializeRequest(requestId: bigint) {
     },
     address: address
       ? {
-          id: address.UniqueID.toString(),
-          alias: addressRow?.alias ?? null,
-          reference: address.reference,
-          street: address.street,
-          num_ext: address.num_ext,
-          num_int: address.num_int,
-          colony: address.colony,
-          municipality: address.municipality,
-          state: address.state,
-          postal_code: address.postal_code,
-          country: address.country,
-          latitude: normalizeNumber(address.latitude),
-          longitude: normalizeNumber(address.longitude),
-          is_main: addressRow?.isMain ?? false,
-        }
+        id: address.UniqueID.toString(),
+        alias: addressAlias,
+        reference: address.reference,
+        street: address.street,
+        num_ext: address.num_ext,
+        num_int: address.num_int,
+        colony: address.colony,
+        municipality: address.municipality,
+        state: address.state,
+        postal_code: address.postal_code,
+        country: address.country,
+        latitude: normalizeNumber(address.latitude),
+        longitude: normalizeNumber(address.longitude),
+        is_main: addressIsMain,
+      }
       : null,
+    location:
+      request.latitude !== null && request.longitude !== null
+        ? {
+          latitude: normalizeNumber(request.latitude),
+          longitude: normalizeNumber(request.longitude),
+        }
+        : null,
     base_price: price?.amount ?? null,
     agreed_price: request.agreed_price,
     attachments: attachments.map((attachment) => ({
@@ -442,7 +455,7 @@ export async function listServiceRequests(
     .offset((page - 1) * limit);
 
   return {
-    data: await Promise.all(rows.map((row) => serializeRequest(row.id))),
+    data: await Promise.all(rows.map((row) => serializeServiceRequestForResponse(row.id))),
     pagination: {
       page,
       limit,
@@ -468,7 +481,7 @@ async function ensureRequestVisible(
 
 export async function getServiceRequest(requestId: bigint, actor: RequestActor) {
   await ensureRequestVisible(requestId, actor);
-  return serializeRequest(requestId);
+  return serializeServiceRequestForResponse(requestId);
 }
 
 export async function getServiceRequestEvents(requestId: bigint, actor: RequestActor) {
@@ -599,12 +612,12 @@ export async function advanceServiceRequestStatus(
     changedBy: actor.id,
     clientId: updatedRequest!.client_id.toString(),
     employeeId: updatedRequest!.employee_id?.toString() ?? null,
-    branchId: updatedRequest!.branch_id.toString(),
+    branchId: updatedRequest!.branch_id?.toString() ?? null,
     latitude: input.latitude,
     longitude: input.longitude,
     historyPersisted: true,
   });
   await eventBus.notify(event);
 
-  return serializeRequest(requestId);
+  return serializeServiceRequestForResponse(requestId);
 }
