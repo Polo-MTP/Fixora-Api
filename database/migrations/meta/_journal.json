@@ -29,6 +29,13 @@
       "when": 1793520762413,
       "tag": "0003_add_email_verification_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793760206686,
+      "tag": "0004_add_documentacion_incompleta",
+      "breakpoints": true
     }
   ]
 }

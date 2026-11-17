@@ -31,6 +31,7 @@ export const supplierApplicationStateEnum = pgEnum('supplier_application_state',
   'pendiente',
   'aprobada',
   'rechazada',
+  'documentacion_incompleta',
 ]);
 
 export const docSupplierTypeEnum = pgEnum('doc_supplier_type', [

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 
 import { AuthError, login, refreshSession, logout } from '../services/auth.service.ts';
+import { deviceTokenService } from '../services/device-token.service.ts';
 
 import {
   registerClient,
@@ -39,6 +40,26 @@ export async function loginController(
     }
 
     const result = await login(email.trim().toLowerCase(), password);
+
+    // Si la app móvil envía opcionalmente el token de dispositivo en el cuerpo del login
+    const deviceToken = body.deviceToken ?? body.device_token;
+    if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim()) {
+      const platform = (body.devicePlatform ??
+        body.device_platform ??
+        body.platform ??
+        'android') as 'android' | 'ios' | 'web';
+      try {
+        await deviceTokenService.registerToken(result.user.id, {
+          token: deviceToken.trim(),
+          platform,
+        });
+      } catch (deviceError) {
+        console.warn(
+          '[auth.controller] No se pudo registrar el token del dispositivo:',
+          deviceError,
+        );
+      }
+    }
 
     res.status(200).json(result);
   } catch (error: unknown) {
@@ -89,6 +110,19 @@ export async function logoutController(
     }
 
     const result = await logout(refreshToken.trim());
+
+    // Si la app móvil envía opcionalmente el token de dispositivo en el cuerpo del logout
+    const deviceToken = body.deviceToken ?? body.device_token ?? body.token;
+    if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim()) {
+      try {
+        await deviceTokenService.deactivateTokenByValue(deviceToken.trim());
+      } catch (deviceError) {
+        console.warn(
+          '[auth.controller] No se pudo desactivar el token del dispositivo:',
+          deviceError,
+        );
+      }
+    }
 
     res.status(200).json(result);
   } catch (error: unknown) {

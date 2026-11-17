@@ -27,4 +27,9 @@ export const ENV = {
   STORAGE_DIR: process.env.STORAGE_DIR ?? 'storage',
   STORAGE_SIGNED_URL_SECRET: process.env.STORAGE_SIGNED_URL_SECRET ?? '',
   APP_URL: process.env.APP_URL ?? `http://localhost:${Number(process.env.PORT) || 3001}`,
+
+  // Firebase Cloud Messaging (FCM)
+  FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID ?? '',
+  FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL ?? '',
+  FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n') ?? '',
 } as const;
