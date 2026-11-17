@@ -21,6 +21,24 @@ import type {
   EmployeeVehicleResponse,
 } from '../types/portfolio.types.ts';
 
+/**
+ * La foto de perfil debe ser una imagen subida con POST /api/files/upload (categoría photos) por
+ * alguno de [allowedOwnerIds]. Sin esta revisión se podría guardar la llave de otro archivo
+ * (por ejemplo, un documento de verificación ajeno) y recibir un enlace firmado para verlo.
+ */
+export function assertProfilePhotoKey(photoKey: string, allowedOwnerIds: string[]): void {
+  const segments = photoKey.split('/');
+  const ownerId = storageService.getFileOwnerId(photoKey);
+  const isPhoto = segments[0] === 'photos' && !segments.includes('..') && !photoKey.includes('\\');
+
+  if (!isPhoto || ownerId === null || !allowedOwnerIds.includes(ownerId)) {
+    throw new BadRequestError(
+      'La foto debe ser una imagen que hayas subido como fotografía.',
+      'INVALID_PHOTO_KEY',
+    );
+  }
+}
+
 export class EmployeeProfileService {
   /**
    * Valida acceso a los datos del empleado.
@@ -178,10 +196,15 @@ export class EmployeeProfileService {
     }
 
     const employeeId = BigInt(employeeIdInput);
-    await this.checkEmployeeAccess(employeeId, user);
+    const access = await this.checkEmployeeAccess(employeeId, user);
 
     const photoKey = input.photo_key !== undefined ? input.photo_key?.trim() || null : undefined;
     const bio = input.bio !== undefined ? input.bio?.trim() || null : undefined;
+
+    if (photoKey) {
+      // La foto la sube el empleado o quien edita su perfil (dueño, gerente o admin).
+      assertProfilePhotoKey(photoKey, [access.userId.toString(), user.id]);
+    }
 
     const [existing] = await db
       .select({ id: employee_profiles.UniqueID, photo_key: employee_profiles.photo_key })
