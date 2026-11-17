@@ -45,7 +45,12 @@ export function errorHandler(
 
   // Errores controlados de la API
   if (err instanceof AppError) {
-    res.status(err.statusCode).json({ error: err.code, message: err.message });
+    const details = (err as AppError & { details?: unknown }).details;
+    res.status(err.statusCode).json({
+      error: err.code,
+      message: err.message,
+      ...(details ? { details } : {}),
+    });
     return;
   }
 

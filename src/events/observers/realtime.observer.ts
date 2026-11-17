@@ -40,6 +40,11 @@ export class RealTimeObserver implements Observer<DomainEvent> {
 
         const channels = [`requests:${payload.requestId}`, `users:${payload.clientId}`];
 
+        // Una solicitud recién creada se publica en el canal de la sucursal para que el portal del proveedor la reciba.
+        if (payload.fromStatus === null) {
+          channels.push(`branches:${payload.branchId}`);
+        }
+
         if (payload.employeeId) {
           channels.push(`technicians:${payload.employeeId}`);
         }

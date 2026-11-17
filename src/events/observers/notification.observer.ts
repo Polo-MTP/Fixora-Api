@@ -78,7 +78,12 @@ export class NotificationObserver implements Observer<DomainEvent> {
     if (toStatus === 'aceptada') {
       message = '¡Un profesional ha aceptado tu solicitud de servicio!';
     } else if (toStatus === 'en_curso') {
-      message = 'El técnico está en camino o atendiendo tu servicio en tu domicilio.';
+      // Compatibilidad con el estado histórico utilizado por módulos anteriores.
+      message = 'El técnico está en camino o atendiendo tu solicitud.';
+    } else if (toStatus === 'en_camino') {
+      message = 'El técnico está en camino a tu domicilio.';
+    } else if (toStatus === 'llegado') {
+      message = 'El técnico ha llegado a tu domicilio.';
     } else if (toStatus === 'completada') {
       message = 'Tu servicio ha sido marcado como completado. ¡No olvides calificar la atención!';
     } else if (toStatus === 'cancelada') {
@@ -125,15 +130,16 @@ export class NotificationObserver implements Observer<DomainEvent> {
     if (documentId) {
       const approved = result === 'aprobado';
       const pending = result === 'pendiente';
+      const name = documentName ?? `#${documentId}`;
       const record: NotificationRecord = {
         userId,
         type: 'revision_documento_proveedor',
-        title: `Revisión de documento: ${documentName ?? `#${documentId}`}`,
+        title: approved ? 'Verificación Aprobada' : `Revisión de documento: ${name}`,
         message: pending
-          ? `Recibimos tu documento ${documentName ?? `#${documentId}`} y está pendiente de revisión.`
+          ? `Recibimos tu documento ${name} y está pendiente de revisión.`
           : approved
-            ? `Tu documento ${documentName ?? `#${documentId}`} fue aprobado.${comment ? ` Observación: ${comment}` : ''}`
-            : `Tu documento ${documentName ?? `#${documentId}`} requiere correcciones.${comment ? ` Motivo: ${comment}` : ''}`,
+            ? `Tu documento ${name} fue aprobado. Los documentos aprobados de tu solicitud quedan registrados en tu expediente.${comment ? ` Observación: ${comment}` : ''}`
+            : `Tu documento ${name} requiere correcciones.${comment ? ` Motivo: ${comment}` : ''}`,
         entityType: 'supplier_document',
         entityId: documentId,
       };

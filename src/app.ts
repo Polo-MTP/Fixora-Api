@@ -23,6 +23,8 @@ import supplierDocumentRoutes from './routes/supplier-document.routes.ts';
 import employeeRoutes from './routes/employee.routes.ts';
 import technicianRoutes from './routes/technician.routes.ts';
 import searchRoutes from './routes/search.routes.ts';
+import branchEmployeeRoutes from './routes/branch-employee.routes.ts';
+import serviceRequestRoutes from './routes/service-request-status.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
@@ -87,6 +89,12 @@ app.use('/api/search', searchRoutes);
 
 //Dar de alta a administrador o Soporte
 app.use('/api/admin', adminStaffRoutes);
+
+// Solicitudes de servicio (API-26 y API-27)
+app.use('/api/service-requests', serviceRequestRoutes);
+
+// Empleados, agenda disponible y sucursales (API-19 y API-27)
+app.use('/api/branches', branchEmployeeRoutes);
 
 // Rutas de pruebas, únicamente fuera de producción
 if (ENV.NODE_ENV !== 'production') {

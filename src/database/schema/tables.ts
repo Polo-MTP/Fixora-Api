@@ -12,6 +12,7 @@ import {
   uuid,
   numeric,
   integer,
+  uniqueIndex,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import {
@@ -382,37 +383,45 @@ export const schedule_blocks = pgTable('schedule_blocks', {
 // MÓDULO: Servicio
 // ============================================================================
 
-export const service_requests = pgTable('service_requests', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  client_id: bigint('client_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  category_id: bigint('category_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => categories.UniqueID),
-  branch_id: bigint('branch_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => branches.UniqueID),
-  address_id: bigint('address_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => addresses.UniqueID),
-  employee_id: bigint('employee_id', { mode: 'bigint' }).references(() => employees.UniqueID),
-  is_emergency: boolean('is_emergency').notNull().default(false),
-  description: text('description').notNull(),
-  status: serviceRequestStatusEnum('status').notNull().default('pendiente'),
-  expires_at: timestamp('expires_at'),
-  canceled_by: canceledByEnum('canceled_by'),
-  canceled_reason: text('canceled_reason'),
-  agreed_price: numeric('agreed_price', { precision: 12, scale: 2 }),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-  scheduled_at: timestamp('scheduled_at'),
-  scheduled_end: timestamp('scheduled_end'),
-  completed_at: timestamp('completed_at'),
-  total_amount: numeric('total_amount', { precision: 12, scale: 2 }),
-  client_uuid: varchar('client_uuid', { length: 100 }),
-  accepted_at: timestamp('accepted_at'),
-  arrived_at: timestamp('arrived_at'),
-});
+export const service_requests = pgTable(
+  'service_requests',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    client_id: bigint('client_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    category_id: bigint('category_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => categories.UniqueID),
+    branch_id: bigint('branch_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => branches.UniqueID),
+    address_id: bigint('address_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => addresses.UniqueID),
+    employee_id: bigint('employee_id', { mode: 'bigint' }).references(() => employees.UniqueID),
+    is_emergency: boolean('is_emergency').notNull().default(false),
+    description: text('description').notNull(),
+    status: serviceRequestStatusEnum('status').notNull().default('pendiente'),
+    expires_at: timestamp('expires_at'),
+    canceled_by: canceledByEnum('canceled_by'),
+    canceled_reason: text('canceled_reason'),
+    agreed_price: numeric('agreed_price', { precision: 12, scale: 2 }),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    scheduled_at: timestamp('scheduled_at'),
+    scheduled_end: timestamp('scheduled_end'),
+    completed_at: timestamp('completed_at'),
+    total_amount: numeric('total_amount', { precision: 12, scale: 2 }),
+    client_uuid: varchar('client_uuid', { length: 100 }),
+    accepted_at: timestamp('accepted_at'),
+    arrived_at: timestamp('arrived_at'),
+  },
+  (table) => ({
+    clientUuidUnique: uniqueIndex('service_requests_client_uuid_unique')
+      .on(table.client_id, table.client_uuid)
+      .where(sql`${table.client_uuid} IS NOT NULL`),
+  }),
+);
 
 export const request_attachments = pgTable('request_attachments', {
   UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
