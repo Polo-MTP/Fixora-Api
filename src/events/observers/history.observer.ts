@@ -29,6 +29,7 @@ export type HistoryPersister = (entry: HistoryEntry) => Promise<void>;
 export class HistoryObserver implements Observer<DomainEvent> {
   public readonly name = 'HistoryObserver';
   private readonly persister: HistoryPersister;
+  private readonly historyEntries: HistoryEntry[] = [];
 
   constructor(customPersister?: HistoryPersister) {
     this.persister = customPersister ?? this.defaultDatabasePersister;
@@ -90,6 +91,7 @@ export class HistoryObserver implements Observer<DomainEvent> {
           },
           createdAt: event.occurredOn,
         };
+        this.historyEntries.push(entry);
         await this.persister(entry);
         break;
       }
@@ -109,6 +111,7 @@ export class HistoryObserver implements Observer<DomainEvent> {
           },
           createdAt: event.occurredOn,
         };
+        this.historyEntries.push(entry);
         await this.persister(entry);
         break;
       }
@@ -128,11 +131,20 @@ export class HistoryObserver implements Observer<DomainEvent> {
           },
           createdAt: event.occurredOn,
         };
+        this.historyEntries.push(entry);
         await this.persister(entry);
         break;
       }
       default:
         break;
     }
+  }
+
+  public getHistoryEntries(): ReadonlyArray<HistoryEntry> {
+    return this.historyEntries;
+  }
+
+  public clearEntries(): void {
+    this.historyEntries.length = 0;
   }
 }

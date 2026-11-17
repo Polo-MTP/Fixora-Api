@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { supplierApplicationService } from '../services/supplier-application.service.ts';
+import { adminSupplierApplicationService } from '../services/admin-supplier-application.service.ts';
 import { BadRequestError, UnauthorizedError } from '../errors/app-error.ts';
 import type { CreateSupplierApplicationInput } from '../types/supplier-application.types.ts';
 
@@ -91,8 +92,12 @@ export class SupplierApplicationController {
         throw new UnauthorizedError('Debes iniciar sesión para consultar tu solicitud.');
       }
 
-      const status = await supplierApplicationService.getMyApplication(req.user.id);
-      res.status(200).json({ data: status });
+      const status = await adminSupplierApplicationService.getMyApplication(req.user.id);
+      res.status(200).json({
+        success: true,
+        message: 'Operación realizada correctamente.',
+        data: status,
+      });
     } catch (error) {
       next(error);
     }
@@ -153,6 +158,10 @@ export class SupplierApplicationController {
    */
   async replaceDocumentById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (!req.user?.id) {
+        throw new UnauthorizedError('Debes iniciar sesión para reemplazar documentos.');
+      }
+
       const idParam = req.params.id;
       const applicationId = Array.isArray(idParam) ? idParam[0] : idParam;
 
@@ -161,6 +170,7 @@ export class SupplierApplicationController {
 
       const result = await supplierApplicationService.replaceDocument({
         applicationId,
+        userId: req.user.id,
         typeDocumentId,
         dueDate: req.body?.due_date,
         fileKey: req.body?.file_key,

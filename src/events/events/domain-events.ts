@@ -5,6 +5,7 @@ export const DOMAIN_EVENTS = {
   SERVICE_REQUEST_STATUS_CHANGED: 'service_request.status_changed',
   REPORT_STATUS_CHANGED: 'report.status_changed',
   SUPPLIER_VERIFICATION_CHANGED: 'supplier.verification_changed',
+  SUPPLIER_APPLICATION_RESOLVED: 'supplier.application_resolved',
 } as const;
 
 export abstract class BaseDomainEvent<T> implements DomainEvent<T> {
@@ -87,6 +88,7 @@ export interface SupplierVerificationPayload {
   supplierId: string;
   userId: string;
   documentId?: string | null;
+  documentName?: string | null;
   result: 'aprobado' | 'rechazado' | 'pendiente';
   reviewedBy: string;
   comment?: string | null;
@@ -98,6 +100,35 @@ export class SupplierVerificationEvent extends BaseDomainEvent<SupplierVerificat
     super(
       DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED,
       payload.supplierId,
+      payload,
+      eventId,
+      occurredOn,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Resolución administrativa de una solicitud de proveedor (API-13)
+// ---------------------------------------------------------------------------
+
+export interface SupplierApplicationResolvedPayload {
+  applicationId: string;
+  supplierId: string;
+  userId: string;
+  email: string;
+  managerName: string;
+  businessName: string;
+  state: 'aprobada' | 'rechazada' | 'documentacion_incompleta';
+  comments?: string | null;
+  missingDocuments?: string[];
+  reviewedBy: string;
+}
+
+export class SupplierApplicationResolvedEvent extends BaseDomainEvent<SupplierApplicationResolvedPayload> {
+  constructor(payload: SupplierApplicationResolvedPayload, eventId?: string, occurredOn?: Date) {
+    super(
+      DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED,
+      payload.applicationId,
       payload,
       eventId,
       occurredOn,

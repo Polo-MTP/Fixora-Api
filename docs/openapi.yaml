@@ -1556,15 +1556,13 @@ paths:
     get:
       tags:
         - Proveedores
-      summary: '[Planeado · API-13] Ver el estado de mi solicitud'
+      summary: 'Ver el estado de mi solicitud (API-13)'
       description: |
         Para el sitio web del proveedor mientras está en revisión. Incluye el resultado y los
-        comentarios de cada documento.
-
-        Nota para API-13: hoy el login responde 403 `ACCOUNT_NOT_ACTIVE` a las cuentas
-        `por_aprobar`. Para usar este endpoint, el login debe permitirles una sesión limitada a la
-        consulta y corrección de su solicitud.
-      x-estado: planeado
+        comentarios de cada documento. Las cuentas `por_aprobar` reciben una sesión limitada a
+        consultar esta solicitud y usar el endpoint para reemplazar documentos observados. No
+        pueden acceder a los demás recursos protegidos de la API.
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1582,6 +1580,8 @@ paths:
                         $ref: '#/components/schemas/SupplierApplication'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1649,8 +1649,8 @@ paths:
     get:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Listar solicitudes de proveedor'
-      x-estado: planeado
+      summary: 'Listar solicitudes de proveedor (API-13)'
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1693,9 +1693,9 @@ paths:
     get:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Ver el desglose de una solicitud'
+      summary: 'Ver el desglose de una solicitud (API-13)'
       description: Encargado, negocio, locales, empleados y documentos con su revisión.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1724,12 +1724,12 @@ paths:
     post:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Resolver una solicitud'
+      summary: 'Resolver una solicitud (API-13)'
       description: |
         `aprobada` solo si todos los documentos están aprobados; activa la cuenta. `rechazada` y
         `documentacion_incompleta` piden comentario. Emite el evento «solicitud resuelta» y se
         avisa al proveedor por correo.
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1772,9 +1772,9 @@ paths:
     patch:
       tags:
         - Administración
-      summary: '[Planeado · API-13] Aprobar o rechazar un documento'
+      summary: 'Aprobar o rechazar un documento (API-13)'
       description: Emite el evento «documento aprobado o rechazado».
-      x-estado: planeado
+      x-estado: implementado
       x-ticket: API-13
       security:
         - bearerAuth: []
@@ -1804,6 +1804,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: La solicitud asociada ya fue resuelta y no admite cambios en sus documentos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/admin/staff:
     post:
@@ -4329,7 +4335,7 @@ components:
           format: email
         documents_pending:
           type: integer
-          description: Documentos sin revisar.
+          description: Documentos obligatorios faltantes o documentos que aún no están aprobados.
 
     SupplierApplication:
       allOf:
@@ -4388,7 +4394,7 @@ components:
         comment:
           type: string
           maxLength: 1000
-          description: Obligatorio al rechazar.
+          description: Obligatorio al rechazar. Máximo 1000 caracteres.
 
     ApplicationResolution:
       type: object
@@ -4404,7 +4410,7 @@ components:
         comments:
           type: string
           maxLength: 2000
-          description: Obligatorio para `rechazada` y `documentacion_incompleta`.
+          description: Obligatorio para `rechazada` y `documentacion_incompleta`. Máximo 2000 caracteres.
 
     StaffCreate:
       type: object

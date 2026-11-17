@@ -283,7 +283,7 @@ Si tú no realizaste esta solicitud, puedes ignorar este mensaje con tranquilida
   let linkHtmlBlock = '';
   if (safeLink) {
     linkHtmlBlock = `
-      <div style="margin: 24px 0; text-align: center;">
+      <div style="margin: 28px 0; text-align: center;">
         <a href="${safeLink}" style="
           display: inline-block;
           padding: 12px 28px;
@@ -375,8 +375,8 @@ export function renderSupplierApplicationReceivedEmail(
   const safeFolio = escapeHtml(options.applicationId);
   const safeType = options.supplierType
     ? escapeHtml(
-        options.supplierType === 'empresa' ? 'Empresa con sucursales' : 'Profesional independiente',
-      )
+      options.supplierType === 'empresa' ? 'Empresa con sucursales' : 'Profesional independiente',
+    )
     : 'No especificado';
   const subject = `Hemos recibido tu solicitud de proveedor - Fixora (Folio #${options.applicationId})`;
 

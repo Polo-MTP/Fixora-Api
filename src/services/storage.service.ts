@@ -47,7 +47,7 @@ const MIN_SECRET_LENGTH = 32;
  */
 function resolveSignSecret(): string {
   const secret = ENV.STORAGE_SIGNED_URL_SECRET;
-  if (secret.length >= MIN_SECRET_LENGTH) return secret;
+  if (secret && secret.length >= MIN_SECRET_LENGTH) return secret;
 
   if (ENV.NODE_ENV === 'production') {
     throw new Error(
@@ -150,7 +150,7 @@ export class StorageService {
   }
 
   /**
-   * Valida tamaño y tipo MIME de un archivo según la categoría
+   * Valida tamaño, tipo MIME y firma mágica de bytes de un archivo según la categoría
    */
   public validateFile(file: Express.Multer.File, category: FileCategory): void {
     const rules = STORAGE_RULES[category];
@@ -183,7 +183,7 @@ export class StorageService {
       );
     }
 
-    // Validar que el contenido corresponda al tipo declarado
+    // Validar que el contenido corresponda al tipo declarado (Magic Bytes)
     const matchesContent = MAGIC_BYTES[mimeNormalized];
     if (matchesContent && !matchesContent(file.buffer)) {
       throw new BadRequestError(
