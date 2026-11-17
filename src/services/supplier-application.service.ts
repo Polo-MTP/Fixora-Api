@@ -736,8 +736,13 @@ export class SupplierApplicationService {
     let fileHash = input.fileHash || null;
 
     if (input.file) {
-      storageService.validateFile(input.file, 'documents');
-      const saved = await storageService.saveUploadedFile(input.file, 'documents');
+      // El dueño del archivo es el usuario del proveedor; queda como documento de verificación.
+      const saved = await storageService.saveUploadedFile(
+        input.file,
+        'documents',
+        applicationRow.user_id.toString(),
+        true,
+      );
       fileKey = saved.file_key;
       fileHash = crypto.createHash('sha256').update(input.file.buffer).digest('hex');
     }

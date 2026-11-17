@@ -26,13 +26,48 @@ const MIME_BY_EXT: Record<string, string> = {
   '.mp4': 'video/mp4',
 };
 
+// Primeros bytes de cada formato: el tipo MIME lo manda el cliente y se puede falsificar,
+// así que se compara contra el contenido real del archivo.
+const MAGIC_BYTES: Record<string, (buf: Buffer) => boolean> = {
+  'application/pdf': (b) => b.subarray(0, 5).toString('latin1') === '%PDF-',
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/png': (b) =>
+    b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  'image/webp': (b) =>
+    b.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    b.subarray(8, 12).toString('latin1') === 'WEBP',
+  'video/mp4': (b) => b.subarray(4, 8).toString('latin1') === 'ftyp',
+};
+
+const MIN_SECRET_LENGTH = 32;
+
+/**
+ * Secreto para firmar enlaces. En producción es obligatorio; en desarrollo, si falta, se usa uno
+ * aleatorio por proceso (los enlaces dejan de servir al reiniciar) para no detener el arranque.
+ */
+function resolveSignSecret(): string {
+  const secret = ENV.STORAGE_SIGNED_URL_SECRET;
+  if (secret.length >= MIN_SECRET_LENGTH) return secret;
+
+  if (ENV.NODE_ENV === 'production') {
+    throw new Error(
+      `STORAGE_SIGNED_URL_SECRET debe existir y tener al menos ${MIN_SECRET_LENGTH} caracteres.`,
+    );
+  }
+
+  console.warn(
+    '[Storage] Falta STORAGE_SIGNED_URL_SECRET; se usa uno temporal. Los enlaces firmados dejarán de ser válidos al reiniciar.',
+  );
+  return crypto.randomBytes(32).toString('hex');
+}
+
 export class StorageService {
   private readonly storageRoot: string;
   private readonly signSecret: string;
 
   constructor() {
     this.storageRoot = path.resolve(process.cwd(), ENV.STORAGE_DIR);
-    this.signSecret = ENV.STORAGE_SIGNED_URL_SECRET;
+    this.signSecret = resolveSignSecret();
     this.ensureBaseDirectories();
   }
 
@@ -147,14 +182,42 @@ export class StorageService {
         `Extensión de archivo no permitida (${ext}). Extensiones válidas para ${rules.label}: ${rules.allowedExtensions.join(', ')}`,
       );
     }
+
+    // Validar que el contenido corresponda al tipo declarado
+    const matchesContent = MAGIC_BYTES[mimeNormalized];
+    if (matchesContent && !matchesContent(file.buffer)) {
+      throw new BadRequestError(
+        `El contenido del archivo no corresponde a su tipo (${file.mimetype}).`,
+        'FILE_CONTENT_MISMATCH',
+      );
+    }
   }
 
   /**
-   * Genera una llave de archivo única, organizada por fecha y sanitizada
+   * Id del usuario que subió el archivo, tomado de su llave (`<categoría>/<id>/...` o
+   * `documents/verification/<id>/...`). Regresa null en llaves sin dueño.
+   */
+  public getFileOwnerId(fileKey: string): string | null {
+    const segments = fileKey.replace(/\\/g, '/').replace(/^\/+/, '').split('/');
+    const ownerIndex = segments[0] === 'documents' && segments[1] === 'verification' ? 2 : 1;
+    const [owner, year, month] = segments.slice(ownerIndex, ownerIndex + 3);
+
+    // Después del dueño siempre van año y mes; así una llave sin dueño (`photos/2026/11/...`)
+    // no hace pasar el año por un id de usuario.
+    const isOwnerKey =
+      /^\d+$/.test(owner ?? '') && /^\d{4}$/.test(year ?? '') && /^\d{2}$/.test(month ?? '');
+
+    return isOwnerKey ? owner! : null;
+  }
+
+  /**
+   * Genera una llave de archivo única, organizada por dueño y fecha, y sanitizada.
+   * El id del dueño en la llave permite saber quién puede borrar el archivo.
    */
   public generateFileKey(
     category: FileCategory,
     originalName: string,
+    ownerId: string,
     isVerification = false,
   ): string {
     const date = new Date();
@@ -175,10 +238,10 @@ export class StorageService {
     const filename = `${uuid}-${sanitizedBase}${ext}`;
 
     if (category === 'documents' && isVerification) {
-      return `documents/verification/${year}/${month}/${filename}`;
+      return `documents/verification/${ownerId}/${year}/${month}/${filename}`;
     }
 
-    return `${category}/${year}/${month}/${filename}`;
+    return `${category}/${ownerId}/${year}/${month}/${filename}`;
   }
 
   /**
@@ -187,6 +250,7 @@ export class StorageService {
   public async saveUploadedFile(
     file: Express.Multer.File,
     category: FileCategory,
+    ownerId: string,
     isVerification = false,
   ): Promise<UploadedFileResult> {
     this.validateFile(file, category);
@@ -195,7 +259,7 @@ export class StorageService {
     const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
 
     // Generar llave de archivo relativa
-    const fileKey = this.generateFileKey(category, file.originalname, isVerification);
+    const fileKey = this.generateFileKey(category, file.originalname, ownerId, isVerification);
     const fullPath = this.resolveSafePath(fileKey);
 
     // Crear subcarpetas según sea necesario
@@ -229,6 +293,9 @@ export class StorageService {
     if (!file_key) {
       throw new BadRequestError('Debes indicar la llave del archivo (file_key).');
     }
+
+    // No firmar llaves que intentan salir del almacenamiento
+    this.resolveSafePath(file_key);
 
     const isVerification = this.isVerificationDocument(file_key);
 

@@ -225,7 +225,7 @@ export async function sendVerificationCodeEmail(
 }
 
 // ============================================================================
-// 2. RECUPERACIÓN DE CONTRASEÑA (API-17)
+// 2. RECUPERACIÓN DE CONTRASEÑA (API-9 / API-17)
 // ============================================================================
 
 export function renderPasswordResetEmail(options: PasswordResetEmailOptions): RenderedEmail {
@@ -344,6 +344,22 @@ export async function sendPasswordResetEmail(options: PasswordResetEmailOptions)
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
+  });
+}
+
+/**
+ * Función helper de compatibilidad para código que requiere la firma antigua `sendPasswordRecoveryCodeEmail`.
+ */
+export async function sendPasswordRecoveryCodeEmail(
+  email: string,
+  code: string,
+  expiresInMinutes: number,
+): Promise<void> {
+  await sendPasswordResetEmail({
+    email,
+    name: 'Usuario',
+    code,
+    expiresInMinutes,
   });
 }
 
