@@ -375,8 +375,8 @@ export function renderSupplierApplicationReceivedEmail(
   const safeFolio = escapeHtml(options.applicationId);
   const safeType = options.supplierType
     ? escapeHtml(
-      options.supplierType === 'empresa' ? 'Empresa con sucursales' : 'Profesional independiente',
-    )
+        options.supplierType === 'empresa' ? 'Empresa con sucursales' : 'Profesional independiente',
+      )
     : 'No especificado';
   const subject = `Hemos recibido tu solicitud de proveedor - Fixora (Folio #${options.applicationId})`;
 

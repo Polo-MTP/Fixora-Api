@@ -1,3 +1,4 @@
+import { publishRealtimeMessage } from '../../realtime/websocket.server.ts';
 import type { Observer } from '../interfaces/observer.interface.ts';
 import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
 import {
@@ -23,12 +24,7 @@ export class RealTimeObserver implements Observer<DomainEvent> {
   private readonly publishedMessages: RealTimeMessage[] = [];
 
   constructor(customPublisher?: RealTimePublisher) {
-    this.publisher = customPublisher ?? this.defaultConsolePublisher;
-  }
-
-  private defaultConsolePublisher(_message: RealTimeMessage): void {
-    // Implementación por defecto desacoplada (se integra con WebSockets o Redis Pub/Sub)
-    // En producción emite al bus de tiempo real
+    this.publisher = customPublisher ?? publishRealtimeMessage;
   }
 
   public async handle(event: DomainEvent): Promise<void> {

@@ -71,12 +71,7 @@ export async function resetPasswordController(
   try {
     const body = req.body ?? {};
 
-    const {
-      email,
-      code,
-      newPassword,
-      new_password,
-    } = body;
+    const { email, code, newPassword, new_password } = body;
 
     // Aceptar camelCase y snake_case.
     const password = newPassword ?? new_password;
@@ -95,11 +90,7 @@ export async function resetPasswordController(
       return;
     }
 
-    const result = await resetPassword(
-      email.trim().toLowerCase(),
-      code,
-      password,
-    );
+    const result = await resetPassword(email.trim().toLowerCase(), code, password);
 
     res.status(200).json({
       success: true,

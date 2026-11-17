@@ -1,4 +1,3 @@
-
 import 'dotenv/config';
 
 import bcrypt from 'bcryptjs';
@@ -6,16 +5,9 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '../config/database.ts';
 
-import {
-  roles,
-  categories,
-  type_documents,
-} from './schema/index.ts';
+import { roles, categories, type_documents } from './schema/index.ts';
 
-import {
-  users,
-  personal_data,
-} from './schema/tables.ts';
+import { users, personal_data } from './schema/tables.ts';
 
 // ============================================================================
 // ADMINISTRADOR PRINCIPAL
@@ -24,52 +16,33 @@ import {
 async function seedPrincipalAdministrator() {
   console.log('Creando administrador principal...');
 
-  const email = process.env.ADMIN_PRINCIPAL_EMAIL
-    ?.trim()
-    .toLowerCase();
+  const email = process.env.ADMIN_PRINCIPAL_EMAIL?.trim().toLowerCase();
 
   const password = process.env.ADMIN_PRINCIPAL_PASSWORD;
 
-  const name =
-    process.env.ADMIN_PRINCIPAL_NAME?.trim() || 'Administrador';
+  const name = process.env.ADMIN_PRINCIPAL_NAME?.trim() || 'Administrador';
 
-  const lastname_p =
-    process.env.ADMIN_PRINCIPAL_LASTNAME_P?.trim() || 'Principal';
+  const lastname_p = process.env.ADMIN_PRINCIPAL_LASTNAME_P?.trim() || 'Principal';
 
-  const lastname_m =
-    process.env.ADMIN_PRINCIPAL_LASTNAME_M?.trim() || null;
+  const lastname_m = process.env.ADMIN_PRINCIPAL_LASTNAME_M?.trim() || null;
 
-  const birth_date =
-    process.env.ADMIN_PRINCIPAL_BIRTH_DATE?.trim() || null;
+  const birth_date = process.env.ADMIN_PRINCIPAL_BIRTH_DATE?.trim() || null;
 
-  const phone =
-    process.env.ADMIN_PRINCIPAL_PHONE?.trim() || null;
+  const phone = process.env.ADMIN_PRINCIPAL_PHONE?.trim() || null;
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error(
-      'ADMIN_PRINCIPAL_EMAIL no está configurado correctamente.',
-    );
+    throw new Error('ADMIN_PRINCIPAL_EMAIL no está configurado correctamente.');
   }
 
   // Buscar el rol Administrador.
-  const [adminRole] = await db
-    .select()
-    .from(roles)
-    .where(eq(roles.name, 'administrador'))
-    .limit(1);
+  const [adminRole] = await db.select().from(roles).where(eq(roles.name, 'administrador')).limit(1);
 
   if (!adminRole || !adminRole.active) {
-    throw new Error(
-      'El rol administrador no existe o está desactivado.',
-    );
+    throw new Error('El rol administrador no existe o está desactivado.');
   }
 
   // Comprobar si el administrador principal ya existe.
-  const [existingAdmin] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
+  const [existingAdmin] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
   if (existingAdmin) {
     // No promover automáticamente una cuenta de otro rol.
@@ -80,18 +53,14 @@ async function seedPrincipalAdministrator() {
     }
 
     if (String(existingAdmin.state).toLowerCase() !== 'activo') {
-      throw new Error(
-        'La cuenta del administrador principal existe, pero no está activa.',
-      );
+      throw new Error('La cuenta del administrador principal existe, pero no está activa.');
     }
 
     // Comprobar si ya tiene datos personales.
     const [existingPersonalData] = await db
       .select()
       .from(personal_data)
-      .where(
-        eq(personal_data.user_id, existingAdmin.UniqueID),
-      )
+      .where(eq(personal_data.user_id, existingAdmin.UniqueID))
       .limit(1);
 
     // Crear datos personales solamente si todavía no existen.
@@ -106,47 +75,33 @@ async function seedPrincipalAdministrator() {
       });
     }
 
-    console.log(
-      'El administrador principal ya existe. No se realizaron cambios.',
-    );
+    console.log('El administrador principal ya existe. No se realizaron cambios.');
 
     return;
   }
 
   // La contraseña solamente es necesaria cuando se crea la cuenta.
-  if (
-    !password ||
-    password.length < 8 ||
-    Buffer.byteLength(password, 'utf8') > 72
-  ) {
+  if (!password || password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
     throw new Error(
       'ADMIN_PRINCIPAL_PASSWORD debe tener al menos 8 caracteres y no superar 72 bytes.',
     );
   }
 
   if (!name || name.length > 100 || !lastname_p || lastname_p.length > 100) {
-    throw new Error(
-      'Los datos personales del administrador principal no son válidos.',
-    );
+    throw new Error('Los datos personales del administrador principal no son válidos.');
   }
 
   if (lastname_m && lastname_m.length > 100) {
-    throw new Error(
-      'El apellido materno del administrador principal supera los 100 caracteres.',
-    );
+    throw new Error('El apellido materno del administrador principal supera los 100 caracteres.');
   }
 
   if (phone && !/^\d{10}$/.test(phone)) {
-    throw new Error(
-      'ADMIN_PRINCIPAL_PHONE debe contener exactamente 10 dígitos.',
-    );
+    throw new Error('ADMIN_PRINCIPAL_PHONE debe contener exactamente 10 dígitos.');
   }
 
   if (birth_date) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birth_date)) {
-      throw new Error(
-        'ADMIN_PRINCIPAL_BIRTH_DATE debe utilizar el formato YYYY-MM-DD.',
-      );
+      throw new Error('ADMIN_PRINCIPAL_BIRTH_DATE debe utilizar el formato YYYY-MM-DD.');
     }
 
     const [year, month, day] = birth_date.split('-').map(Number);
@@ -158,9 +113,7 @@ async function seedPrincipalAdministrator() {
       date.getUTCDate() !== day ||
       date.getTime() > Date.now()
     ) {
-      throw new Error(
-        'La fecha de nacimiento del administrador principal no es válida.',
-      );
+      throw new Error('La fecha de nacimiento del administrador principal no es válida.');
     }
   }
 
@@ -216,12 +169,9 @@ async function seed() {
   ];
 
   for (const role of initialRoles) {
-    await db
-      .insert(roles)
-      .values(role)
-      .onConflictDoNothing({
-        target: roles.name,
-      });
+    await db.insert(roles).values(role).onConflictDoNothing({
+      target: roles.name,
+    });
   }
 
   // 2. Administrador principal
@@ -264,12 +214,9 @@ async function seed() {
   ];
 
   for (const cat of initialCategories) {
-    await db
-      .insert(categories)
-      .values(cat)
-      .onConflictDoNothing({
-        target: categories.slug,
-      });
+    await db.insert(categories).values(cat).onConflictDoNothing({
+      target: categories.slug,
+    });
   }
 
   // 4. Tipos de documento
