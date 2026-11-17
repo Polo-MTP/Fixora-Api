@@ -15,6 +15,7 @@ import {
   business_supplier,
 } from '../database/schema/tables.ts';
 import type { RealTimeMessage } from '../events/observers/realtime.observer.ts';
+import { trackingService } from '../services/tracking.service.ts';
 
 const WS_PATH = '/ws';
 const AUTH_TIMEOUT_MS = 5_000;
@@ -45,6 +46,11 @@ interface ClientMessage {
   type?: unknown;
   token?: unknown;
   requestId?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  heading?: unknown;
+  speed?: unknown;
+  timestamp?: unknown;
 }
 
 const sockets = new Set<AuthenticatedSocket>();
@@ -306,6 +312,92 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
     const room = `requests:${message.requestId}`;
     leaveRoom(socket, room);
     send(socket, { type: 'unsubscribed', room });
+    return;
+  }
+
+  if (message.type === 'technician_location' || message.type === 'location_update') {
+    if (socket.role?.trim().toLowerCase() !== 'empleado') {
+      send(socket, {
+        type: 'error',
+        code: 'FORBIDDEN',
+        message: 'Solo los técnicos pueden reportar su ubicación en tiempo real.',
+      });
+      return;
+    }
+
+    const requestIdStr = String(message.requestId ?? '').trim();
+    if (!/^[1-9]\d{0,17}$/.test(requestIdStr)) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_REQUEST_ID',
+        message: 'requestId no es válido.',
+      });
+      return;
+    }
+
+    const lat = Number(message.latitude);
+    const lng = Number(message.longitude);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_COORDINATES',
+        message: 'La latitud debe ser un número entre -90 y 90.',
+      });
+      return;
+    }
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_COORDINATES',
+        message: 'La longitud debe ser un número entre -180 y 180.',
+      });
+      return;
+    }
+
+    const heading =
+      typeof message.heading === 'number' && Number.isFinite(message.heading)
+        ? message.heading
+        : null;
+    const speed =
+      typeof message.speed === 'number' && Number.isFinite(message.speed) ? message.speed : null;
+    const timestamp = typeof message.timestamp === 'string' ? message.timestamp : undefined;
+
+    try {
+      const { location, routeEta } = await trackingService.recordTechnicianLocation(
+        requestIdStr,
+        socket.userId!,
+        {
+          latitude: lat,
+          longitude: lng,
+          heading,
+          speed,
+          timestamp,
+        },
+      );
+
+      send(socket, {
+        type: 'location_recorded',
+        requestId: requestIdStr,
+        location,
+        eta: routeEta
+          ? {
+              duration_seconds: routeEta.duration_seconds,
+              distance_meters: routeEta.distance_meters,
+              eta_timestamp: routeEta.eta_timestamp,
+              is_fallback: routeEta.is_fallback,
+            }
+          : null,
+      });
+    } catch (err: unknown) {
+      const errMessage =
+        err instanceof Error ? err.message : 'No fue posible registrar la ubicación.';
+      const code = (err as { code?: string })?.code || 'LOCATION_UPDATE_FAILED';
+      send(socket, {
+        type: 'error',
+        code,
+        message: errMessage,
+      });
+    }
     return;
   }
 

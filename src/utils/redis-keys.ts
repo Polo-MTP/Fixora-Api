@@ -12,4 +12,11 @@ export const redisKeys = {
 
   /** Marca de «en línea» de un técnico; expira si deja de reportarse. */
   technicianOnline: (employeeId: bigint | string) => `${PREFIX}:technician:${employeeId}:online`,
+
+  /** Última posición reportada por el técnico durante el traslado hacia el domicilio (API-32). */
+  requestTechnicianLocation: (requestId: bigint | string) =>
+    `${PREFIX}:request:${requestId}:technician_location`,
+
+  /** Ruta y tiempo estimado de llegada (ETA) calculados para el traslado (API-33). */
+  requestRouteEta: (requestId: bigint | string) => `${PREFIX}:request:${requestId}:route_eta`,
 } as const;
