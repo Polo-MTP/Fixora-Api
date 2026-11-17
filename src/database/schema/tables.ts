@@ -99,6 +99,7 @@ export const notifications = pgTable('notifications', {
   entity_type: varchar('entity_type', { length: 100 }),
   entity_id: bigint('entity_id', { mode: 'bigint' }), // Relación polimórfica
   read_at: timestamp('read_at'),
+  created_at: timestamp('created_at').notNull().defaultNow(),
 });
 
 export const addresses = pgTable('addresses', {

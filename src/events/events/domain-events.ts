@@ -6,6 +6,7 @@ export const DOMAIN_EVENTS = {
   REPORT_STATUS_CHANGED: 'report.status_changed',
   SUPPLIER_VERIFICATION_CHANGED: 'supplier.verification_changed',
   SUPPLIER_APPLICATION_RESOLVED: 'supplier.application_resolved',
+  SUPPLIER_APPLICATION_CREATED: 'supplier.application_created',
 } as const;
 
 export abstract class BaseDomainEvent<T> implements DomainEvent<T> {
@@ -130,6 +131,30 @@ export class SupplierApplicationResolvedEvent extends BaseDomainEvent<SupplierAp
   constructor(payload: SupplierApplicationResolvedPayload, eventId?: string, occurredOn?: Date) {
     super(
       DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED,
+      payload.applicationId,
+      payload,
+      eventId,
+      occurredOn,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Nueva solicitud de proveedor (API-25)
+// ---------------------------------------------------------------------------
+
+export interface SupplierApplicationCreatedPayload {
+  applicationId: string;
+  supplierId: string;
+  userId: string;
+  businessName: string;
+  supplierType: string;
+}
+
+export class SupplierApplicationCreatedEvent extends BaseDomainEvent<SupplierApplicationCreatedPayload> {
+  constructor(payload: SupplierApplicationCreatedPayload, eventId?: string, occurredOn?: Date) {
+    super(
+      DOMAIN_EVENTS.SUPPLIER_APPLICATION_CREATED,
       payload.applicationId,
       payload,
       eventId,

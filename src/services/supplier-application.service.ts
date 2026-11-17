@@ -21,7 +21,10 @@ import {
 } from '../database/schema/tables.ts';
 import { AppError, BadRequestError, ConflictError, NotFoundError } from '../errors/app-error.ts';
 import { eventBus } from '../events/index.ts';
-import { SupplierVerificationEvent } from '../events/events/domain-events.ts';
+import {
+  SupplierVerificationEvent,
+  SupplierApplicationCreatedEvent,
+} from '../events/events/domain-events.ts';
 import { storageService } from './storage.service.ts';
 import { sendSupplierApplicationReceivedEmail } from './email.service.ts';
 import type {
@@ -522,7 +525,22 @@ export class SupplierApplicationService {
       };
     });
 
-    // 6. Emitir evento de dominio con el patrón Observer
+    // 6. Emitir evento para avisar a los administradores de una nueva solicitud.
+    try {
+      await eventBus.notify(
+        new SupplierApplicationCreatedEvent({
+          applicationId: result.applicationId,
+          supplierId: result.supplierId,
+          userId: result.userId,
+          businessName: result.businessName,
+          supplierType: result.supplierType,
+        }),
+      );
+    } catch (eventErr) {
+      console.error('[SupplierApplicationService] Error al notificar nueva solicitud:', eventErr);
+    }
+
+    // 7. Emitir evento de recepción al solicitante.
     try {
       await eventBus.notify(
         new SupplierVerificationEvent({
@@ -538,7 +556,7 @@ export class SupplierApplicationService {
       console.error('[SupplierApplicationService] Error al emitir evento de dominio:', eventErr);
     }
 
-    // 7. Enviar correo de confirmación de solicitud recibida (API-17)
+    // 8. Enviar correo de confirmación de solicitud recibida (API-17)
     try {
       await sendSupplierApplicationReceivedEmail({
         email: result.email,

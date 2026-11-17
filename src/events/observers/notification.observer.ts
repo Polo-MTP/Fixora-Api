@@ -1,3 +1,4 @@
+import { and, eq } from 'drizzle-orm';
 import type { Observer } from '../interfaces/observer.interface.ts';
 import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
 import {
@@ -6,9 +7,11 @@ import {
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
+  type SupplierApplicationCreatedPayload,
 } from '../events/domain-events.ts';
 import { db } from '../../config/database.ts';
-import { notifications } from '../../database/schema/tables.ts';
+import { notifications, roles, users } from '../../database/schema/tables.ts';
+import { fcmService } from '../../services/fcm.service.ts';
 
 export interface NotificationRecord {
   userId: string;
@@ -20,18 +23,27 @@ export interface NotificationRecord {
 }
 
 export type NotificationPersister = (record: NotificationRecord) => Promise<void>;
+export type NotificationPushSender = (record: NotificationRecord) => Promise<void>;
+export type AdministratorRecipientProvider = () => Promise<string[]>;
 
 export class NotificationObserver implements Observer<DomainEvent> {
   public readonly name = 'NotificationObserver';
   private readonly persister: NotificationPersister;
+  private readonly pushSender: NotificationPushSender;
+  private readonly administratorRecipientProvider: AdministratorRecipientProvider;
   private readonly dispatchedRecords: NotificationRecord[] = [];
 
-  constructor(customPersister?: NotificationPersister) {
+  constructor(
+    customPersister?: NotificationPersister,
+    customPushSender?: NotificationPushSender,
+    customAdministratorRecipientProvider?: AdministratorRecipientProvider,
+  ) {
     this.persister = customPersister ?? this.defaultDatabasePersister;
+    this.pushSender = customPushSender ?? this.defaultPushSender;
+    this.administratorRecipientProvider =
+      customAdministratorRecipientProvider ?? this.defaultAdministratorRecipientProvider;
   }
 
-  // Si falla, el error llega al EventBus: lo registra y lo cuenta como fallo de este observador
-  // sin afectar a los demás. Tragárselo aquí haría que el bus lo reportara como éxito.
   private async defaultDatabasePersister(record: NotificationRecord): Promise<void> {
     await db.insert(notifications).values({
       user_id: BigInt(record.userId),
@@ -43,36 +55,72 @@ export class NotificationObserver implements Observer<DomainEvent> {
     });
   }
 
+  private async defaultPushSender(record: NotificationRecord): Promise<void> {
+    const data: Record<string, string> = { type: record.type };
+    if (record.entityType) data.entity_type = record.entityType;
+    if (record.entityId) data.entity_id = record.entityId;
+
+    await fcmService.sendToUser(record.userId, {
+      title: record.title,
+      body: record.message,
+      data,
+    });
+  }
+
+  private async defaultAdministratorRecipientProvider(): Promise<string[]> {
+    const administrators = await db
+      .select({ id: users.UniqueID })
+      .from(users)
+      .innerJoin(roles, eq(users.role_id, roles.UniqueID))
+      .where(
+        and(eq(roles.name, 'administrador'), eq(roles.active, true), eq(users.state, 'activo')),
+      );
+
+    return administrators.map((administrator) => administrator.id.toString());
+  }
+
+  private async dispatch(record: NotificationRecord): Promise<void> {
+    this.dispatchedRecords.push(record);
+    // El registro persistente es la fuente de verdad; un fallo de FCM no debe perderlo.
+    await this.persister(record);
+    try {
+      await this.pushSender(record);
+    } catch (error) {
+      console.error('[NotificationObserver] No fue posible enviar la notificación push:', error);
+    }
+  }
+
   public async handle(event: DomainEvent): Promise<void> {
     switch (event.eventType) {
-      case DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED: {
-        const payload = event.payload as ServiceRequestStatusChangedPayload;
-        await this.handleServiceRequest(payload);
+      case DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED:
+        await this.handleServiceRequest(event.payload as ServiceRequestStatusChangedPayload);
         break;
-      }
-      case DOMAIN_EVENTS.REPORT_STATUS_CHANGED: {
-        const payload = event.payload as ReportStatusChangedPayload;
-        await this.handleReport(payload);
+      case DOMAIN_EVENTS.REPORT_STATUS_CHANGED:
+        await this.handleReport(event.payload as ReportStatusChangedPayload);
         break;
-      }
-      case DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED: {
-        const payload = event.payload as SupplierVerificationPayload;
-        await this.handleSupplierVerification(payload);
+      case DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED:
+        await this.handleSupplierVerification(event.payload as SupplierVerificationPayload);
         break;
-      }
-      case DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED: {
-        const payload = event.payload as SupplierApplicationResolvedPayload;
-        await this.handleSupplierApplicationResolved(payload);
+      case DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED:
+        await this.handleSupplierApplicationResolved(
+          event.payload as SupplierApplicationResolvedPayload,
+        );
         break;
-      }
+      case DOMAIN_EVENTS.SUPPLIER_APPLICATION_CREATED:
+        await this.handleSupplierApplicationCreated(
+          event.payload as SupplierApplicationCreatedPayload,
+        );
+        break;
       default:
-        // Evento no procesado por este observador
         break;
     }
   }
 
   private async handleServiceRequest(payload: ServiceRequestStatusChangedPayload): Promise<void> {
-    const { requestId, toStatus, clientId, reason } = payload;
+    const { requestId, fromStatus, toStatus, clientId, reason } = payload;
+    // La creación inicial (null -> pendiente) no es un cambio notificable al propio cliente.
+    if (fromStatus === null) return;
+
     let message = `El estado de tu solicitud cambió a "${toStatus}".`;
 
     if (toStatus === 'aceptada') {
@@ -90,17 +138,14 @@ export class NotificationObserver implements Observer<DomainEvent> {
       message = `Tu solicitud fue cancelada${reason ? ': ' + reason : '.'}`;
     }
 
-    const record: NotificationRecord = {
+    await this.dispatch({
       userId: clientId,
-      type: 'solicitud_servicio',
+      type: `solicitud_${toStatus}`,
       title: `Actualización de Solicitud #${requestId}`,
       message,
       entityType: 'service_request',
       entityId: requestId,
-    };
-
-    this.dispatchedRecords.push(record);
-    await this.persister(record);
+    });
   }
 
   private async handleReport(payload: ReportStatusChangedPayload): Promise<void> {
@@ -128,23 +173,22 @@ export class NotificationObserver implements Observer<DomainEvent> {
     const { supplierId, userId, result, comment, documentId, documentName } = payload;
 
     if (documentId) {
-      const approved = result === 'aprobado';
-      const pending = result === 'pendiente';
       const name = documentName ?? `#${documentId}`;
-      const record: NotificationRecord = {
+      const message =
+        result === 'pendiente'
+          ? `Recibimos tu documento ${name} y está pendiente de revisión.`
+          : result === 'aprobado'
+            ? `Tu documento ${name} fue aprobado. Los documentos aprobados de tu solicitud quedan registrados en tu expediente.${comment ? ` Observación: ${comment}` : ''}`
+            : `Tu documento ${name} requiere correcciones.${comment ? ` Motivo: ${comment}` : ''}`;
+
+      await this.dispatch({
         userId,
         type: 'revision_documento_proveedor',
-        title: approved ? 'Verificación Aprobada' : `Revisión de documento: ${name}`,
-        message: pending
-          ? `Recibimos tu documento ${name} y está pendiente de revisión.`
-          : approved
-            ? `Tu documento ${name} fue aprobado. Los documentos aprobados de tu solicitud quedan registrados en tu expediente.${comment ? ` Observación: ${comment}` : ''}`
-            : `Tu documento ${name} requiere correcciones.${comment ? ` Motivo: ${comment}` : ''}`,
+        title: result === 'aprobado' ? 'Verificación Aprobada' : `Revisión de documento: ${name}`,
+        message,
         entityType: 'supplier_document',
         entityId: documentId,
-      };
-      this.dispatchedRecords.push(record);
-      await this.persister(record);
+      });
       return;
     }
 
@@ -155,7 +199,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
           ? '¡Felicidades! Tus documentos de proveedor han sido aprobados. Tu cuenta está habilitada.'
           : `Tu verificación de documentos fue rechazada${comment ? ': ' + comment : '.'}`;
 
-    const record: NotificationRecord = {
+    await this.dispatch({
       userId,
       type: 'verificacion_proveedor',
       title:
@@ -167,10 +211,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
       message,
       entityType: 'supplier_verification',
       entityId: supplierId,
-    };
-
-    this.dispatchedRecords.push(record);
-    await this.persister(record);
+    });
   }
 
   private async handleSupplierApplicationResolved(
@@ -181,16 +222,32 @@ export class NotificationObserver implements Observer<DomainEvent> {
       rechazada: 'rechazada',
       documentacion_incompleta: 'requiere documentación adicional',
     } as const;
-    const record: NotificationRecord = {
+
+    await this.dispatch({
       userId: payload.userId,
       type: 'solicitud_proveedor_resuelta',
       title: 'Resultado de tu solicitud de proveedor',
       message: `Tu solicitud #${payload.applicationId} fue ${labels[payload.state]}.${payload.comments ? ` Observaciones: ${payload.comments}` : ''}`,
       entityType: 'supplier_application',
       entityId: payload.applicationId,
+    });
+  }
+
+  private async handleSupplierApplicationCreated(
+    payload: SupplierApplicationCreatedPayload,
+  ): Promise<void> {
+    const administratorIds = await this.administratorRecipientProvider();
+    const recordBase = {
+      type: 'nueva_solicitud_proveedor',
+      title: 'Nueva solicitud de proveedor',
+      message: `El negocio ${payload.businessName} registró una nueva solicitud de proveedor (#${payload.applicationId}).`,
+      entityType: 'supplier_application',
+      entityId: payload.applicationId,
     };
-    this.dispatchedRecords.push(record);
-    await this.persister(record);
+
+    for (const userId of administratorIds) {
+      await this.dispatch({ userId, ...recordBase });
+    }
   }
 
   public getDispatchedRecords(): ReadonlyArray<NotificationRecord> {

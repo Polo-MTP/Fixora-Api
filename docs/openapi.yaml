@@ -2492,9 +2492,8 @@ paths:
     get:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-25] Centro de notificaciones'
-      description: Las más recientes primero.
-      x-estado: planeado
+      summary: 'Centro de notificaciones (API-25)'
+      description: Las más recientes primero. `unread=true` filtra las no leídas.
       x-ticket: API-25
       security:
         - bearerAuth: []
@@ -2534,8 +2533,7 @@ paths:
     post:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-25] Marcar una notificación como leída'
-      x-estado: planeado
+      summary: 'Marcar una notificación como leída (API-25)'
       x-ticket: API-25
       security:
         - bearerAuth: []
@@ -2555,8 +2553,7 @@ paths:
     post:
       tags:
         - Mi cuenta
-      summary: '[Planeado · API-25] Marcar todas como leídas'
-      x-estado: planeado
+      summary: 'Marcar todas como leídas (API-25)'
       x-ticket: API-25
       security:
         - bearerAuth: []
@@ -4932,6 +4929,8 @@ components:
           enum:
             - service_request
             - supplier_application
+            - supplier_verification
+            - supplier_document
             - report
             - null
         entity_id:
@@ -4946,7 +4945,7 @@ components:
         created_at:
           type: string
           format: date-time
-          description: Requiere migración; hoy la tabla `notifications` no tiene `created_at`.
+          description: Fecha en que se generó la notificación.
 
     # ------------------------------------------------------------------------
     # Solicitudes de servicio

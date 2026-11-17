@@ -74,7 +74,8 @@ describe('Observadores desacoplados de dominio', () => {
       assert.equal(notificationRecords.length, 1);
       const notif = notificationRecords[0];
       assert.equal(notif.userId, '303');
-      assert.equal(notif.type, 'solicitud_servicio');
+      // API-25: el tipo indica el estado al que pasó la solicitud.
+      assert.equal(notif.type, 'solicitud_en_curso');
       assert.equal(notif.entityId, '101');
       assert.match(notif.message, /en camino o atendiendo/);
 
