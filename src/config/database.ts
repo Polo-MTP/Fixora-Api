@@ -11,3 +11,7 @@ export const pgClient = postgres(ENV.DATABASE_URL, {
 });
 
 export const db = drizzle(pgClient, { schema });
+
+export async function closeDatabase(): Promise<void> {
+  await pgClient.end({ timeout: 1 });
+}

@@ -4,6 +4,7 @@ import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
 import {
   DOMAIN_EVENTS,
   type ServiceRequestStatusChangedPayload,
+  type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
   type SupplierApplicationCreatedPayload,
@@ -71,7 +72,9 @@ export class NotificationObserver implements Observer<DomainEvent> {
       .select({ id: users.UniqueID })
       .from(users)
       .innerJoin(roles, eq(users.role_id, roles.UniqueID))
-      .where(and(eq(roles.name, 'administrador'), eq(roles.active, true), eq(users.state, 'activo')));
+      .where(
+        and(eq(roles.name, 'administrador'), eq(roles.active, true), eq(users.state, 'activo')),
+      );
 
     return administrators.map((administrator) => administrator.id.toString());
   }
@@ -92,14 +95,21 @@ export class NotificationObserver implements Observer<DomainEvent> {
       case DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED:
         await this.handleServiceRequest(event.payload as ServiceRequestStatusChangedPayload);
         break;
+      case DOMAIN_EVENTS.REPORT_STATUS_CHANGED:
+        await this.handleReport(event.payload as ReportStatusChangedPayload);
+        break;
       case DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED:
         await this.handleSupplierVerification(event.payload as SupplierVerificationPayload);
         break;
       case DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED:
-        await this.handleSupplierApplicationResolved(event.payload as SupplierApplicationResolvedPayload);
+        await this.handleSupplierApplicationResolved(
+          event.payload as SupplierApplicationResolvedPayload,
+        );
         break;
       case DOMAIN_EVENTS.SUPPLIER_APPLICATION_CREATED:
-        await this.handleSupplierApplicationCreated(event.payload as SupplierApplicationCreatedPayload);
+        await this.handleSupplierApplicationCreated(
+          event.payload as SupplierApplicationCreatedPayload,
+        );
         break;
       default:
         break;
@@ -115,7 +125,10 @@ export class NotificationObserver implements Observer<DomainEvent> {
 
     if (toStatus === 'aceptada') {
       message = '¡Un profesional ha aceptado tu solicitud de servicio!';
-    } else if (toStatus === 'en_curso' || toStatus === 'en_camino') {
+    } else if (toStatus === 'en_curso') {
+      // Compatibilidad con el estado histórico utilizado por módulos anteriores.
+      message = 'El técnico está en camino o atendiendo tu solicitud.';
+    } else if (toStatus === 'en_camino') {
       message = 'El técnico está en camino a tu domicilio.';
     } else if (toStatus === 'llegado') {
       message = 'El técnico ha llegado a tu domicilio.';
@@ -135,6 +148,27 @@ export class NotificationObserver implements Observer<DomainEvent> {
     });
   }
 
+  private async handleReport(payload: ReportStatusChangedPayload): Promise<void> {
+    const { reportId, reporterId, toStatus, resolutionType } = payload;
+    let message = `Tu reporte #${reportId} ha cambiado de estado a "${toStatus}".`;
+
+    if (toStatus === 'resuelto') {
+      message = `Tu reporte #${reportId} ha sido resuelto${resolutionType ? ' (' + resolutionType + ')' : ''}.`;
+    }
+
+    const record: NotificationRecord = {
+      userId: reporterId,
+      type: 'reporte',
+      title: `Actualización de Reporte #${reportId}`,
+      message,
+      entityType: 'report',
+      entityId: reportId,
+    };
+
+    this.dispatchedRecords.push(record);
+    await this.persister(record);
+  }
+
   private async handleSupplierVerification(payload: SupplierVerificationPayload): Promise<void> {
     const { supplierId, userId, result, comment, documentId, documentName } = payload;
 
@@ -144,13 +178,13 @@ export class NotificationObserver implements Observer<DomainEvent> {
         result === 'pendiente'
           ? `Recibimos tu documento ${name} y está pendiente de revisión.`
           : result === 'aprobado'
-            ? `Tu documento ${name} fue aprobado.${comment ? ` Observación: ${comment}` : ''}`
+            ? `Tu documento ${name} fue aprobado. Los documentos aprobados de tu solicitud quedan registrados en tu expediente.${comment ? ` Observación: ${comment}` : ''}`
             : `Tu documento ${name} requiere correcciones.${comment ? ` Motivo: ${comment}` : ''}`;
 
       await this.dispatch({
         userId,
         type: 'revision_documento_proveedor',
-        title: `Revisión de documento: ${name}`,
+        title: result === 'aprobado' ? 'Verificación Aprobada' : `Revisión de documento: ${name}`,
         message,
         entityType: 'supplier_document',
         entityId: documentId,

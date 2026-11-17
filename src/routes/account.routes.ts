@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import * as accountController from '../controllers/account.controller.ts';
+import { employeeProfileController } from '../controllers/employee-profile.controller.ts';
 
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
 import { notificationsController } from '../controllers/notifications.controller.ts';
@@ -32,6 +33,12 @@ router.get('/', accountController.getMe);
 router.patch('/', accountController.updateMe);
 
 router.patch('/password', accountController.changePassword);
+
+// ============================================================
+// PERFIL DE EMPLEADO
+// ============================================================
+
+router.get('/employee-profile', employeeProfileController.getMyEmployeeProfile);
 
 // ============================================================
 // DIRECCIONES
