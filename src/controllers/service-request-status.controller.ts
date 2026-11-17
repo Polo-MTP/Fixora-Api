@@ -11,6 +11,7 @@ import {
   rejectServiceRequest,
 } from '../services/service-request-response.service.ts';
 import { cancelServiceRequest } from '../services/service-request-cancellation.service.ts';
+import { trackingService } from '../services/tracking.service.ts';
 
 function parseId(value: unknown): bigint {
   if (typeof value !== 'string' || !/^[1-9]\d{0,17}$/.test(value)) {
@@ -79,6 +80,24 @@ export async function listServiceRequestEvents(req: Request, res: Response, next
   }
 }
 
+export async function getRequestTrackingController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const data = await trackingService.getRequestTracking(
+      parseId(req.params.id),
+      actorFromRequest(req),
+    );
+    return res
+      .status(200)
+      .json({ success: true, message: 'Operación realizada correctamente.', data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function acceptServiceRequestController(
   req: Request,
   res: Response,
@@ -106,13 +125,16 @@ export async function rejectServiceRequestController(
   next: NextFunction,
 ) {
   try {
-    const result = await rejectServiceRequest(parseId(req.params.id), actorFromRequest(req), req.body);
+    const result = await rejectServiceRequest(
+      parseId(req.params.id),
+      actorFromRequest(req),
+      req.body,
+    );
     return res.status(200).json(result);
   } catch (error) {
     return next(error);
   }
 }
-
 
 export async function cancelServiceRequestController(
   req: Request,
