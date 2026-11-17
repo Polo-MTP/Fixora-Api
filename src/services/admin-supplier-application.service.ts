@@ -733,6 +733,40 @@ export class AdminSupplierApplicationService {
           .update(suppliers)
           .set({ active: true })
           .where(eq(suppliers.UniqueID, row.supplier_id));
+
+        // El proveedor independiente es quien atiende: se registra como técnico de su sucursal
+        // para que tenga perfil (foto, biografía y vehículo) y pueda recibir solicitudes.
+        // En una empresa el encargado no atiende; sus técnicos son los empleados que da de alta.
+        if (row.supplier_type === 'independiente' && row.business_id !== null) {
+          const [branch] = await tx
+            .select({ id: branches.UniqueID })
+            .from(branches)
+            .where(eq(branches.business_id, row.business_id))
+            .orderBy(asc(branches.UniqueID))
+            .limit(1);
+
+          if (branch) {
+            const [existing] = await tx
+              .select({ id: employees.UniqueID })
+              .from(employees)
+              .where(
+                and(
+                  eq(employees.user_id, row.supplier_user_id),
+                  eq(employees.branch_id, branch.id),
+                ),
+              )
+              .limit(1);
+
+            if (!existing) {
+              await tx.insert(employees).values({
+                user_id: row.supplier_user_id,
+                branch_id: branch.id,
+                can_attend: true,
+                active: true,
+              });
+            }
+          }
+        }
       }
     });
 
