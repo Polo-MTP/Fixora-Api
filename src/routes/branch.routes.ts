@@ -29,7 +29,12 @@ router.post('/:id/portfolio', authenticateToken, portfolioController.addWorkToPo
 // Reemplazar categorías de la sucursal (las que no vengan se desactivan)
 router.put('/:id/categories', authenticateToken, portfolioController.updateBranchCategories);
 
-// Listar empleados de la sucursal enriquecidos con foto, biografía y vehículo
-router.get('/:id/employees', authenticateToken, employeeProfileController.getBranchEmployees);
+// Listar empleados de la sucursal enriquecidos con foto, biografía y vehículo.
+// Va en /details porque GET /:id/employees es el listado básico del contrato (API-19).
+router.get(
+  '/:id/employees/details',
+  authenticateToken,
+  employeeProfileController.getBranchEmployees,
+);
 
 export default router;

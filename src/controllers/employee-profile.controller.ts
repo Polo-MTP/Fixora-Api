@@ -132,7 +132,7 @@ export class EmployeeProfileController {
   }
 
   /**
-   * GET /api/branches/:id/employees
+   * GET /api/branches/:id/employees/details
    * Lista todos los empleados de la sucursal con su foto, biografía y vehículo.
    */
   async getBranchEmployees(req: Request, res: Response, next: NextFunction): Promise<void> {

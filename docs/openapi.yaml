@@ -1968,6 +1968,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/branches/{id}/employees/details:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Sucursales
+      summary: 'Listar empleados de una sucursal con foto, biografía y vehículo (API-20)'
+      description: >-
+        Versión detallada del listado de empleados activos. Además de los datos de
+        `GET /api/branches/{id}/employees`, incluye apellido materno, teléfono, perfil (foto
+        con enlace firmado y biografía) y vehículo activo. Para el administrador, el proveedor
+        dueño y el gerente de la sucursal.
+      x-estado: implementado
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Empleados activos con su perfil y vehículo.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/EmployeeDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/branches/{id}/categories:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -4312,6 +4349,50 @@ components:
           description: Si puede recibir solicitudes como técnico.
         active:
           type: boolean
+
+    EmployeeDetail:
+      allOf:
+        - $ref: '#/components/schemas/Employee'
+        - type: object
+          properties:
+            lastname_m:
+              type: string
+              nullable: true
+            phone:
+              type: string
+              nullable: true
+            profile:
+              type: object
+              properties:
+                photo_key:
+                  type: string
+                  nullable: true
+                photo_url:
+                  type: string
+                  nullable: true
+                  description: Enlace firmado a la foto, vigente 180 minutos.
+                bio:
+                  type: string
+                  nullable: true
+            vehicle:
+              type: object
+              nullable: true
+              description: Vehículo activo del empleado; nulo si no tiene.
+              properties:
+                id:
+                  type: string
+                employee_id:
+                  type: string
+                plate:
+                  type: string
+                brand:
+                  type: string
+                model:
+                  type: string
+                color:
+                  type: string
+                active:
+                  type: boolean
 
     BusinessInput:
       type: object
