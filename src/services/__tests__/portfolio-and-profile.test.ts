@@ -5,7 +5,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { closeDatabase } from '../../config/database.ts';
 import { portfolioService } from '../portfolio.service.ts';
 import { NON_PUBLISHABLE_DOC_PATTERN } from '../supplier-document-visibility.service.ts';
-import { employeeProfileService } from '../employee-profile.service.ts';
+import { assertProfilePhotoKey, employeeProfileService } from '../employee-profile.service.ts';
 import { supplierDocumentVisibilityController } from '../../controllers/supplier-document-visibility.controller.ts';
 import { employeeProfileController } from '../../controllers/employee-profile.controller.ts';
 import { BadRequestError, UnauthorizedError } from '../../errors/app-error.ts';
@@ -250,6 +250,28 @@ describe('API-20: Categorías de Sucursal (portfolioService.updateBranchCategori
 });
 
 describe('API-20: Perfil y Vehículo del Empleado (employeeProfileService)', () => {
+  it('acepta como foto una imagen subida por el empleado o por quien edita su perfil', () => {
+    assert.doesNotThrow(() => assertProfilePhotoKey('photos/7/2026/11/foto.jpg', ['7', '1']));
+    assert.doesNotThrow(() => assertProfilePhotoKey('photos/1/2026/11/foto.png', ['7', '1']));
+  });
+
+  it('rechaza como foto archivos de otra categoría, de otro usuario o con rutas raras', () => {
+    const invalid = [
+      'documents/verification/9/2026/11/ine.pdf',
+      'documents/7/2026/11/comprobante.pdf',
+      'photos/9/2026/11/ajena.jpg',
+      'photos/2026/11/sin-dueno.jpg',
+      'photos/7/2026/11/../../../documents/verification/9/2026/11/ine.pdf',
+    ];
+    for (const key of invalid) {
+      assert.throws(
+        () => assertProfilePhotoKey(key, ['7', '1']),
+        (err: unknown) => err instanceof BadRequestError && err.code === 'INVALID_PHOTO_KEY',
+        key,
+      );
+    }
+  });
+
   it('rechaza biografía de empleado que excede 1000 caracteres', async () => {
     const longBio = 'A'.repeat(1001);
 
