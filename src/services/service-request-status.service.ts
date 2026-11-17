@@ -31,6 +31,7 @@ import {
 import { eventBus } from '../events/event-bus.ts';
 import { ServiceRequestStatusChangedEvent } from '../events/events/domain-events.ts';
 import { storageService } from './storage.service.ts';
+import { trackingService } from './tracking.service.ts';
 import { isValidServiceRequestTransition } from '../utils/service-request-transitions.ts';
 
 export const PUBLIC_STATUSES = [
@@ -323,16 +324,16 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     );
   const [price] = request.branch_id
     ? await db
-      .select({ amount: branches_categories.base_price })
-      .from(branches_categories)
-      .where(
-        and(
-          eq(branches_categories.branch_id, request.branch_id),
-          eq(branches_categories.category_id, request.category_id),
-          eq(branches_categories.active, true),
-        ),
-      )
-      .limit(1)
+        .select({ amount: branches_categories.base_price })
+        .from(branches_categories)
+        .where(
+          and(
+            eq(branches_categories.branch_id, request.branch_id),
+            eq(branches_categories.category_id, request.category_id),
+            eq(branches_categories.active, true),
+          ),
+        )
+        .limit(1)
     : [undefined];
 
   let technician: { employee_id: string; name: string; photo_url: string | null } | null = null;
@@ -382,28 +383,28 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     },
     address: address
       ? {
-        id: address.UniqueID.toString(),
-        alias: addressAlias,
-        reference: address.reference,
-        street: address.street,
-        num_ext: address.num_ext,
-        num_int: address.num_int,
-        colony: address.colony,
-        municipality: address.municipality,
-        state: address.state,
-        postal_code: address.postal_code,
-        country: address.country,
-        latitude: normalizeNumber(address.latitude),
-        longitude: normalizeNumber(address.longitude),
-        is_main: addressIsMain,
-      }
+          id: address.UniqueID.toString(),
+          alias: addressAlias,
+          reference: address.reference,
+          street: address.street,
+          num_ext: address.num_ext,
+          num_int: address.num_int,
+          colony: address.colony,
+          municipality: address.municipality,
+          state: address.state,
+          postal_code: address.postal_code,
+          country: address.country,
+          latitude: normalizeNumber(address.latitude),
+          longitude: normalizeNumber(address.longitude),
+          is_main: addressIsMain,
+        }
       : null,
     location:
       request.latitude !== null && request.longitude !== null
         ? {
-          latitude: normalizeNumber(request.latitude),
-          longitude: normalizeNumber(request.longitude),
-        }
+            latitude: normalizeNumber(request.latitude),
+            longitude: normalizeNumber(request.longitude),
+          }
         : null,
     base_price: price?.amount ?? null,
     agreed_price: request.agreed_price,
@@ -580,13 +581,15 @@ export async function advanceServiceRequestStatus(
       .returning();
     if (!updated) throw new NotFoundError();
 
+    // Guardar latitud y longitud solo al aceptar, salir (en_camino) y llegar (llegado) (API-34)
+    const shouldSaveCoordinates = ['en_camino', 'llegado'].includes(target);
     await tx.insert(service_request_events).values({
       request_id: requestId,
       from_status: current.status,
       to_status: dbTarget,
       changed_by: actorId,
-      latitude: String(input.latitude),
-      longitude: String(input.longitude),
+      latitude: shouldSaveCoordinates ? String(input.latitude) : null,
+      longitude: shouldSaveCoordinates ? String(input.longitude) : null,
       created_at: now,
     });
 
@@ -618,6 +621,15 @@ export async function advanceServiceRequestStatus(
     historyPersisted: true,
   });
   await eventBus.notify(event);
+
+  // Al llegar o finalizar la solicitud, se borra el tracking activo de Redis (API-32)
+  if (['llegado', 'completada'].includes(target)) {
+    try {
+      await trackingService.clearRequestTracking(requestId);
+    } catch (error) {
+      console.error('[API-32] No se pudo limpiar el tracking de Redis:', error);
+    }
+  }
 
   return serializeServiceRequestForResponse(requestId);
 }
