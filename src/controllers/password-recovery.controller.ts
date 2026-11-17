@@ -71,14 +71,21 @@ export async function resetPasswordController(
   try {
     const body = req.body ?? {};
 
-    // snake_case, como el resto de la API (lastname_p, current_password, ...).
-    const { email, code, new_password: newPassword } = body;
+    const {
+      email,
+      code,
+      newPassword,
+      new_password,
+    } = body;
+
+    // Aceptar camelCase y snake_case.
+    const password = newPassword ?? new_password;
 
     if (
       typeof email !== 'string' ||
       !email.trim() ||
       typeof code !== 'string' ||
-      typeof newPassword !== 'string'
+      typeof password !== 'string'
     ) {
       res.status(400).json({
         error: 'INVALID_INPUT',
@@ -88,7 +95,11 @@ export async function resetPasswordController(
       return;
     }
 
-    const result = await resetPassword(email.trim().toLowerCase(), code, newPassword);
+    const result = await resetPassword(
+      email.trim().toLowerCase(),
+      code,
+      password,
+    );
 
     res.status(200).json({
       success: true,
@@ -98,3 +109,4 @@ export async function resetPasswordController(
     handleRecoveryError(error, res, next);
   }
 }
+
