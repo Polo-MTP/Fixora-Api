@@ -22,6 +22,7 @@ import {
 } from '../database/schema/tables.ts';
 import { AppError, BadRequestError, ConflictError, NotFoundError } from '../errors/app-error.ts';
 import { eventBus } from '../events/event-bus.ts';
+import { NON_PUBLISHABLE_DOC_PATTERN } from './supplier-document-visibility.service.ts';
 import {
   SupplierVerificationEvent,
   SupplierApplicationResolvedEvent,
@@ -604,6 +605,7 @@ export class AdminSupplierApplicationService {
         user_id: users.UniqueID,
         supplier_type: suppliers.supplier_type,
         type_name: type_documents.name,
+        type_mandatory: type_documents.mandatory,
         application_state: supplier_applications.state,
       })
       .from(supplier_documents)
@@ -617,7 +619,16 @@ export class AdminSupplierApplicationService {
 
     if (!document)
       throw new NotFoundError('No se encontró el documento del proveedor.', 'NOT_FOUND');
-    if (document.application_state === 'aprobada' || document.application_state === 'rechazada') {
+    // Con la solicitud aprobada solo se revisan los certificados opcionales que el proveedor sube
+    // después (POST /api/supplier-documents); los obligatorios ya no cambian.
+    const isLateCertificate =
+      document.application_state === 'aprobada' &&
+      !document.type_mandatory &&
+      !NON_PUBLISHABLE_DOC_PATTERN.test(document.type_name);
+    if (
+      (document.application_state === 'aprobada' && !isLateCertificate) ||
+      document.application_state === 'rechazada'
+    ) {
       throw new ConflictError(
         'La solicitud ya fue resuelta y no admite cambios en sus documentos.',
         'APPLICATION_ALREADY_RESOLVED',
@@ -646,6 +657,14 @@ export class AdminSupplierApplicationService {
         500,
         'DOCUMENT_REVIEW_FAILED',
       );
+    }
+
+    // Un documento rechazado no puede seguir en la ficha pública.
+    if (result === 'rechazado') {
+      await db
+        .update(supplier_documents)
+        .set({ is_public: false })
+        .where(eq(supplier_documents.UniqueID, document.id));
     }
 
     const docs = await this.getDocuments(document.supplier_id);

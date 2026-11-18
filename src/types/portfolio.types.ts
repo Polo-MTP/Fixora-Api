@@ -6,7 +6,8 @@ export interface PortfolioMediaInput {
 export interface PortfolioWorkInput {
   title: string;
   description?: string | null;
-  media: PortfolioMediaInput[];
+  /** Opcional: de 0 a 10 fotos subidas por quien registra el trabajo. */
+  media?: PortfolioMediaInput[];
 }
 
 export interface PortfolioMediaResponse {

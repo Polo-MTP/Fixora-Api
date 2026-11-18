@@ -998,6 +998,7 @@ export class SupplierApplicationService {
         file_hash: supplier_documents.file_hash,
         upload_date: supplier_documents.upload_date,
         due_date: supplier_documents.due_date,
+        is_public: supplier_documents.is_public,
       })
       .from(supplier_documents)
       .innerJoin(type_documents, eq(supplier_documents.type_document_id, type_documents.UniqueID))
@@ -1026,6 +1027,8 @@ export class SupplierApplicationService {
           file_hash: doc.file_hash,
           upload_date: doc.upload_date,
           due_date: doc.due_date,
+          // Si se muestra en la ficha pública (ANDROID-8 lo usa para el interruptor de cada certificado).
+          is_public: doc.is_public,
           validation: validation || null,
         };
       }),
