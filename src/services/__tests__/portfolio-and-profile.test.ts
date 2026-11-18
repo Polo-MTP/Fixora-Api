@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import type { Request, Response, NextFunction } from 'express';
 
 import { closeDatabase } from '../../config/database.ts';
-import { portfolioService } from '../portfolio.service.ts';
+import { assertPortfolioMediaKey, portfolioService } from '../portfolio.service.ts';
+import { isUploadableCertificateType } from '../supplier-certificate.service.ts';
 import { NON_PUBLISHABLE_DOC_PATTERN } from '../supplier-document-visibility.service.ts';
 import { assertProfilePhotoKey, employeeProfileService } from '../employee-profile.service.ts';
 import { supplierDocumentVisibilityController } from '../../controllers/supplier-document-visibility.controller.ts';
@@ -120,24 +121,21 @@ describe('API-20: Portafolio de Trabajos (portfolioService)', () => {
     );
   });
 
-  it('rechaza crear trabajo con lista de fotos vacía', async () => {
+  it('rechaza fotos que no subió quien registra el trabajo (antes de tocar la base)', async () => {
     await assert.rejects(
       async () => {
         await portfolioService.addWorkToPortfolio(
           '1',
           {
             title: 'Reparación de fuga',
-            media: [],
+            media: [{ file_key: 'documents/verification/9/2026/11/ine.jpg' }],
           },
           fakeAdminUser,
         );
       },
       (err: unknown) => {
         assert.ok(err instanceof BadRequestError);
-        assert.equal(
-          (err as BadRequestError).message,
-          'Debes incluir entre 1 y 10 fotos para el trabajo del portafolio.',
-        );
+        assert.equal((err as BadRequestError).code, 'INVALID_PORTFOLIO_MEDIA_KEY');
         return true;
       },
     );
@@ -164,7 +162,7 @@ describe('API-20: Portafolio de Trabajos (portfolioService)', () => {
         assert.ok(err instanceof BadRequestError);
         assert.equal(
           (err as BadRequestError).message,
-          'Debes incluir entre 1 y 10 fotos para el trabajo del portafolio.',
+          'Un trabajo del portafolio puede tener como máximo 10 fotos.',
         );
         return true;
       },
@@ -191,6 +189,76 @@ describe('API-20: Portafolio de Trabajos (portfolioService)', () => {
         );
         return true;
       },
+    );
+  });
+});
+
+describe('ANDROID-8: Fotos del portafolio (assertPortfolioMediaKey)', () => {
+  it('acepta fotos y evidencias subidas por quien registra el trabajo', () => {
+    assert.doesNotThrow(() => assertPortfolioMediaKey('photos/7/2026/11/trabajo.jpg', '7'));
+    assert.doesNotThrow(() => assertPortfolioMediaKey('evidences/7/2026/11/antes.png', '7'));
+  });
+
+  it('rechaza archivos de otra persona, documentos y rutas manipuladas', () => {
+    for (const key of [
+      'photos/8/2026/11/ajena.jpg',
+      'documents/7/2026/11/certificado.pdf',
+      'documents/verification/7/2026/11/ine.jpg',
+      'photos/7/../../documents/verification/8/ine.jpg',
+      'photos\\7\\2026\\11\\foto.jpg',
+    ]) {
+      assert.throws(
+        () => assertPortfolioMediaKey(key, '7'),
+        (err: unknown) => (err as BadRequestError).code === 'INVALID_PORTFOLIO_MEDIA_KEY',
+        key,
+      );
+    }
+  });
+});
+
+describe('ANDROID-8: Certificados que puede subir un proveedor aprobado', () => {
+  const type = (
+    name: string,
+    extra: Partial<{ mandatory: boolean; active: boolean; supplier_type: string }> = {},
+  ) => ({
+    name,
+    mandatory: false,
+    active: true,
+    supplier_type: 'ambos',
+    ...extra,
+  });
+
+  it('permite certificaciones y títulos técnicos', () => {
+    assert.equal(
+      isUploadableCertificateType(type('Certificaciones o Títulos Técnicos'), 'independiente'),
+      true,
+    );
+  });
+
+  it('no permite documentos obligatorios, de identidad ni antecedentes', () => {
+    assert.equal(
+      isUploadableCertificateType(
+        type('Identificación Oficial (INE / Pasaporte)', { mandatory: true }),
+        'independiente',
+      ),
+      false,
+    );
+    assert.equal(
+      isUploadableCertificateType(type('Carta de No Antecedentes Penales'), 'independiente'),
+      false,
+    );
+  });
+
+  it('respeta el tipo de proveedor y los tipos inactivos', () => {
+    const poliza = type('Póliza de Seguro de Responsabilidad Civil', { supplier_type: 'empresa' });
+    assert.equal(isUploadableCertificateType(poliza, 'empresa'), true);
+    assert.equal(isUploadableCertificateType(poliza, 'independiente'), false);
+    assert.equal(
+      isUploadableCertificateType(
+        type('Certificaciones o Títulos Técnicos', { active: false }),
+        'empresa',
+      ),
+      false,
     );
   });
 });

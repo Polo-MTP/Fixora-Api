@@ -25,6 +25,29 @@ import type {
   PortfolioWorkResponse,
 } from '../types/portfolio.types.ts';
 
+/** Máximo de fotos por trabajo del portafolio. */
+export const MAX_PORTFOLIO_MEDIA = 10;
+
+/**
+ * Cada foto de un trabajo debe ser un archivo subido con POST /api/files/upload (categoría photos
+ * o evidences) por [ownerId], quien registra el trabajo. El portafolio es público: sin esta revisión
+ * se podría publicar la llave de otro archivo (por ejemplo, la identificación de alguien).
+ */
+export function assertPortfolioMediaKey(fileKey: string, ownerId: string): void {
+  const segments = fileKey.split('/');
+  const isMedia =
+    (segments[0] === 'photos' || segments[0] === 'evidences') &&
+    !segments.includes('..') &&
+    !fileKey.includes('\\');
+
+  if (!isMedia || storageService.getFileOwnerId(fileKey) !== ownerId) {
+    throw new BadRequestError(
+      'Cada foto debe ser una imagen que hayas subido para el portafolio.',
+      'INVALID_PORTFOLIO_MEDIA_KEY',
+    );
+  }
+}
+
 /**
  * Valida que el usuario tenga acceso de gestión a una sucursal específica.
  * Permitido para:
@@ -171,14 +194,19 @@ export class PortfolioService {
       throw new BadRequestError('El título no puede exceder los 255 caracteres.');
     }
 
-    if (!Array.isArray(input.media) || input.media.length === 0 || input.media.length > 10) {
-      throw new BadRequestError('Debes incluir entre 1 y 10 fotos para el trabajo del portafolio.');
+    // Las fotos son opcionales (ANDROID-8): un trabajo puede ir solo con título y descripción.
+    const media = input.media ?? [];
+    if (!Array.isArray(media) || media.length > MAX_PORTFOLIO_MEDIA) {
+      throw new BadRequestError(
+        `Un trabajo del portafolio puede tener como máximo ${MAX_PORTFOLIO_MEDIA} fotos.`,
+      );
     }
 
-    for (const item of input.media) {
-      if (!item.file_key || typeof item.file_key !== 'string' || !item.file_key.trim()) {
+    for (const item of media) {
+      if (!item?.file_key || typeof item.file_key !== 'string' || !item.file_key.trim()) {
         throw new BadRequestError('Cada foto debe incluir un file_key válido.');
       }
+      assertPortfolioMediaKey(item.file_key.trim(), user.id);
     }
 
     const branchId = BigInt(branchIdInput);
@@ -213,17 +241,19 @@ export class PortfolioService {
           description: portfolio_works.description,
         });
 
-      const mediaToInsert = input.media.map((m) => ({
+      const mediaToInsert = media.map((m) => ({
         work_id: newWork.id,
         file_key: m.file_key.trim(),
         description: m.description ? m.description.trim() : null,
       }));
 
-      const insertedMedia = await tx.insert(portfolio_media).values(mediaToInsert).returning({
-        id: portfolio_media.UniqueID,
-        file_key: portfolio_media.file_key,
-        description: portfolio_media.description,
-      });
+      const insertedMedia = mediaToInsert.length
+        ? await tx.insert(portfolio_media).values(mediaToInsert).returning({
+            id: portfolio_media.UniqueID,
+            file_key: portfolio_media.file_key,
+            description: portfolio_media.description,
+          })
+        : [];
 
       return {
         newWork,
@@ -467,10 +497,16 @@ export class PortfolioService {
     return docs.map((doc) => {
       let signedUrl: string;
       try {
-        const urlRes = storageService.generateSignedUrl({
-          file_key: doc.file_key,
-          expires_in_minutes: 180,
-        });
+        // Los certificados del registro se guardan como documentos de verificación, que solo se
+        // firman para el administrador. Aquí solo llegan los publicados (is_public), que ya
+        // aprobó un administrador y que el proveedor eligió mostrar; sin esto la url salía vacía.
+        const urlRes = storageService.generateSignedUrl(
+          {
+            file_key: doc.file_key,
+            expires_in_minutes: 180,
+          },
+          'administrador',
+        );
         signedUrl = urlRes.signed_url;
       } catch {
         signedUrl = '';
