@@ -2120,6 +2120,62 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /api/portfolio/{id}/media:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Sucursales
+      summary: '[API-20] Agregar fotos a un trabajo del portafolio'
+      description: >-
+        Agrega fotos a un trabajo que ya existe, sin pasar de 10 en total (si no, 400
+        `PORTFOLIO_MEDIA_LIMIT`). Igual que al crearlo, cada foto debe haberla subido quien la agrega.
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - media
+              properties:
+                media:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required:
+                      - file_key
+                    properties:
+                      file_key:
+                        type: string
+                      description:
+                        type: string
+      responses:
+        '201':
+          description: Trabajo con todas sus fotos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PortfolioWork'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/portfolio/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'

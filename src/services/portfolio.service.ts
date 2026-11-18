@@ -291,6 +291,71 @@ export class PortfolioService {
   }
 
   /**
+   * Agrega fotos a un trabajo que ya existe, sin pasar de [MAX_PORTFOLIO_MEDIA] en total. Cada foto
+   * debe ser propia, igual que al crear el trabajo (ANDROID-8).
+   */
+  async addMediaToWork(
+    workIdInput: string | bigint,
+    mediaInput: unknown,
+    user: AuthenticatedUser,
+  ): Promise<PortfolioWorkResponse> {
+    if (!Array.isArray(mediaInput) || mediaInput.length === 0) {
+      throw new BadRequestError('Debes incluir al menos una foto para agregar al trabajo.');
+    }
+    const media = mediaInput as { file_key?: unknown; description?: unknown }[];
+    for (const item of media) {
+      if (!item || typeof item.file_key !== 'string' || !item.file_key.trim()) {
+        throw new BadRequestError('Cada foto debe incluir un file_key válido.');
+      }
+      assertPortfolioMediaKey(item.file_key.trim(), user.id);
+    }
+
+    const workId = BigInt(workIdInput);
+    const [work] = await db
+      .select({
+        id: portfolio_works.UniqueID,
+        branch_id: portfolio_works.branch_id,
+        title: portfolio_works.title,
+        description: portfolio_works.description,
+      })
+      .from(portfolio_works)
+      .where(eq(portfolio_works.UniqueID, workId))
+      .limit(1);
+
+    if (!work) {
+      throw new NotFoundError('Trabajo del portafolio no encontrado.');
+    }
+
+    await checkBranchAccess(work.branch_id, user);
+
+    const existing = await db
+      .select({ id: portfolio_media.UniqueID })
+      .from(portfolio_media)
+      .where(eq(portfolio_media.work_id, workId));
+
+    if (existing.length + media.length > MAX_PORTFOLIO_MEDIA) {
+      throw new BadRequestError(
+        `Un trabajo del portafolio puede tener como máximo ${MAX_PORTFOLIO_MEDIA} fotos; ya tiene ${existing.length}.`,
+        'PORTFOLIO_MEDIA_LIMIT',
+      );
+    }
+
+    await db.insert(portfolio_media).values(
+      media.map((m) => ({
+        work_id: workId,
+        file_key: (m.file_key as string).trim(),
+        description:
+          typeof m.description === 'string' && m.description.trim() ? m.description.trim() : null,
+      })),
+    );
+
+    const [updated] = (await this.getBranchPortfolio(work.branch_id)).filter(
+      (w) => w.id === workId.toString(),
+    );
+    return updated;
+  }
+
+  /**
    * Elimina un trabajo del portafolio y sus fotos asociadas.
    */
   async deletePortfolioWork(workIdInput: string | bigint, user: AuthenticatedUser): Promise<void> {
