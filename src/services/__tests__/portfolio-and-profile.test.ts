@@ -216,6 +216,27 @@ describe('ANDROID-8: Fotos del portafolio (assertPortfolioMediaKey)', () => {
   });
 });
 
+describe('ANDROID-8: Agregar fotos a un trabajo (portfolioService.addMediaToWork)', () => {
+  it('pide al menos una foto', async () => {
+    await assert.rejects(
+      () => portfolioService.addMediaToWork('1', [], fakeAdminUser),
+      (err: unknown) => err instanceof BadRequestError,
+    );
+  });
+
+  it('rechaza fotos que no subió quien las agrega (antes de tocar la base)', async () => {
+    await assert.rejects(
+      () =>
+        portfolioService.addMediaToWork(
+          '1',
+          [{ file_key: 'photos/9/2026/11/ajena.jpg' }],
+          fakeAdminUser,
+        ),
+      (err: unknown) => (err as BadRequestError).code === 'INVALID_PORTFOLIO_MEDIA_KEY',
+    );
+  });
+});
+
 describe('ANDROID-8: Certificados que puede subir un proveedor aprobado', () => {
   const type = (
     name: string,

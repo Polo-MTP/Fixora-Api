@@ -46,6 +46,29 @@ export class PortfolioController {
   }
 
   /**
+   * POST /api/portfolio/:id/media
+   * Agrega fotos a un trabajo que ya existe (máximo 10 en total).
+   */
+  async addMediaToWork(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new UnauthorizedError('Debes iniciar sesión para agregar fotos a este trabajo.');
+      }
+
+      const workId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const data = await portfolioService.addMediaToWork(workId, req.body?.media, req.user);
+
+      res.status(201).json({
+        success: true,
+        message: 'Fotos agregadas al trabajo exitosamente.',
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * DELETE /api/portfolio/:id
    * Quita un trabajo del portafolio.
    */
