@@ -12,6 +12,9 @@ import {
 } from '../database/schema/tables.ts';
 
 import bcrypt from 'bcryptjs';
+import { BadRequestError } from '../errors/app-error.ts';
+import { assertProfilePhotoKey } from './employee-profile.service.ts';
+import { storageService } from './storage.service.ts';
 
 // ============================================================
 // ERRORES DEL MÓDULO
@@ -248,11 +251,14 @@ export async function getMyAccount(userId: bigint) {
       lastname_m: personal_data.lastname_m,
       birth_date: personal_data.birth_date,
       phone: personal_data.phone,
+      photo_key: personal_data.photo_key,
     })
     .from(personal_data)
     .where(eq(personal_data.user_id, userId))
     .orderBy(asc(personal_data.UniqueID))
     .limit(1);
+
+  const { photo_key: photoKey, ...personal } = personalData ?? { photo_key: null };
 
   return {
     user: {
@@ -261,8 +267,54 @@ export async function getMyAccount(userId: bigint) {
       role: user.role,
       state: user.state,
     },
-    personal_data: personalData ?? null,
+    personal_data: personalData ? personal : null,
+    // Enlace firmado a la foto de perfil de la cuenta (API-10), o null si no tiene.
+    photo_url: signPhoto(photoKey),
   };
+}
+
+function signPhoto(photoKey: string | null): string | null {
+  if (!photoKey) return null;
+  try {
+    return storageService.generateSignedUrl({ file_key: photoKey, expires_in_minutes: 180 })
+      .signed_url;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================
+// FOTO DE PERFIL DE LA CUENTA (API-10)
+// ============================================================
+
+/**
+ * Pone o quita la foto de perfil de la cuenta. [photoKey] es la llave de una imagen subida por el
+ * mismo usuario con POST /api/files/upload (categoría photos); null la quita.
+ */
+export async function updateMyPhoto(userId: bigint, photoKey: unknown) {
+  if (photoKey !== null && (typeof photoKey !== 'string' || !photoKey.trim())) {
+    throw new BadRequestError(
+      'Debes enviar photo_key con la llave de la foto, o null para quitarla.',
+    );
+  }
+  const key = photoKey === null ? null : photoKey.trim();
+  if (key !== null) assertProfilePhotoKey(key, [userId.toString()]);
+
+  const updated = await db
+    .update(personal_data)
+    .set({ photo_key: key })
+    .where(eq(personal_data.user_id, userId))
+    .returning({ id: personal_data.UniqueID });
+
+  if (updated.length === 0) {
+    throw new AccountError(
+      404,
+      'ACCOUNT_NOT_FOUND',
+      'No se encontraron los datos personales de la cuenta.',
+    );
+  }
+
+  return { photo_url: signPhoto(key) };
 }
 
 // ============================================================

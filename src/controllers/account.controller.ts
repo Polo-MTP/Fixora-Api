@@ -1,4 +1,4 @@
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 import {
   AccountError,
@@ -11,6 +11,7 @@ import {
   updateMyAddress,
   setMainAddress,
   deactivateMyAddress,
+  updateMyPhoto,
 } from '../services/account.service.ts';
 
 // ============================================================
@@ -127,6 +128,26 @@ export async function updateMe(req: Request, res: Response) {
     });
   } catch (error) {
     return handleError(res, error);
+  }
+}
+
+// ============================================================
+// PUT /api/me/photo
+// FOTO DE PERFIL DE LA CUENTA (API-10)
+// ============================================================
+
+export async function updateMyPhotoController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { userId } = getAuthenticatedContext(req);
+    const data = await updateMyPhoto(userId, req.body?.photo_key);
+    return res.status(200).json({
+      success: true,
+      message: data.photo_url ? 'Foto de perfil actualizada.' : 'Foto de perfil quitada.',
+      data,
+    });
+  } catch (error) {
+    if (error instanceof AccountError) return handleError(res, error);
+    return next(error);
   }
 }
 
