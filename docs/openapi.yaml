@@ -987,6 +987,54 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/me/photo:
+    put:
+      tags:
+        - Mi cuenta
+      summary: '[API-10] Poner o quitar la foto de perfil de la cuenta'
+      description: >-
+        La foto se sube antes con `POST /api/files/upload` (`category` = `photos`) por el mismo usuario.
+        `photo_key: null` la quita. `GET /api/me` devuelve el enlace en `photo_url`.
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - photo_key
+              properties:
+                photo_key:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Foto actualizada o quitada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          photo_url:
+                            type: string
+                            nullable: true
+        '400':
+          description: La llave no es una foto subida por el usuario (`INVALID_PHOTO_KEY`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/me/password:
     patch:
       tags:

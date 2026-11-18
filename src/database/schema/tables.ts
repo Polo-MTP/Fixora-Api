@@ -86,6 +86,8 @@ export const personal_data = pgTable('personal_data', {
   lastname_m: varchar('lastname_m', { length: 100 }),
   birth_date: date('birth_date'),
   phone: varchar('phone', { length: 30 }),
+  // Foto de perfil de la cuenta (API-10); la de los técnicos vive en employee_profiles.
+  photo_key: varchar('photo_key', { length: 500 }),
 });
 
 export const notifications = pgTable('notifications', {
