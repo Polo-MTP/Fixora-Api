@@ -18,10 +18,10 @@ router.use(authenticateToken);
 
 router.get('/notifications', (req, res, next) => notificationsController.list(req, res, next));
 router.post('/notifications/read-all', (req, res, next) =>
-    notificationsController.markAllAsRead(req, res, next),
+  notificationsController.markAllAsRead(req, res, next),
 );
 router.post('/notifications/:id/read', (req, res, next) =>
-    notificationsController.markAsRead(req, res, next),
+  notificationsController.markAsRead(req, res, next),
 );
 
 // ============================================================
@@ -33,6 +33,9 @@ router.get('/', accountController.getMe);
 router.patch('/', accountController.updateMe);
 
 router.patch('/password', accountController.changePassword);
+
+// Poner o quitar la foto de perfil de la cuenta (API-10)
+router.put('/photo', accountController.updateMyPhotoController);
 
 // ============================================================
 // PERFIL DE EMPLEADO

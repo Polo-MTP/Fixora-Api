@@ -987,6 +987,54 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/me/photo:
+    put:
+      tags:
+        - Mi cuenta
+      summary: '[API-10] Poner o quitar la foto de perfil de la cuenta'
+      description: >-
+        La foto se sube antes con `POST /api/files/upload` (`category` = `photos`) por el mismo usuario.
+        `photo_key: null` la quita. `GET /api/me` devuelve el enlace en `photo_url`.
+      x-ticket: API-10
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - photo_key
+              properties:
+                photo_key:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Foto actualizada o quitada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          photo_url:
+                            type: string
+                            nullable: true
+        '400':
+          description: La llave no es una foto subida por el usuario (`INVALID_PHOTO_KEY`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/me/password:
     patch:
       tags:
@@ -2087,7 +2135,10 @@ paths:
       tags:
         - Sucursales
       summary: '[Planeado · API-20] Agregar un trabajo al portafolio'
-      description: Las fotos se suben antes con `POST /api/files/upload` (`category` = `photos`).
+      description: >-
+        Las fotos son opcionales (de 0 a 10). Se suben antes con `POST /api/files/upload`
+        (`category` = `photos` o `evidences`) por el mismo usuario que registra el trabajo; una llave
+        de otro usuario o de otra categoría responde 400 `INVALID_PORTFOLIO_MEDIA_KEY`.
       x-estado: planeado
       x-ticket: API-20
       security:
@@ -2117,6 +2168,62 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /api/portfolio/{id}/media:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Sucursales
+      summary: '[API-20] Agregar fotos a un trabajo del portafolio'
+      description: >-
+        Agrega fotos a un trabajo que ya existe, sin pasar de 10 en total (si no, 400
+        `PORTFOLIO_MEDIA_LIMIT`). Igual que al crearlo, cada foto debe haberla subido quien la agrega.
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - media
+              properties:
+                media:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required:
+                      - file_key
+                    properties:
+                      file_key:
+                        type: string
+                      description:
+                        type: string
+      responses:
+        '201':
+          description: Trabajo con todas sus fotos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PortfolioWork'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/portfolio/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -2141,6 +2248,68 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/supplier-documents:
+    post:
+      tags:
+        - Sucursales
+      summary: '[API-20] Subir un certificado del proveedor aprobado'
+      description: >-
+        El proveedor con la solicitud aprobada sube un certificado nuevo (por defecto, «Certificaciones
+        o Títulos Técnicos»). Cada certificado es un documento aparte, queda pendiente hasta que un
+        administrador lo revise con `PATCH /api/admin/supplier-documents/{id}` y, ya aprobado, el
+        proveedor decide si se muestra con `PATCH /api/supplier-documents/{id}/visibility`.
+      x-ticket: API-20
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF o imagen.
+                type_document_id:
+                  type: string
+                  description: Opcional. Debe ser un tipo no obligatorio y publicable.
+                due_date:
+                  type: string
+                  format: date
+                  description: Obligatoria si el tipo requiere vigencia.
+      responses:
+        '201':
+          description: Certificado recibido, pendiente de revisión.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SupplierDocument'
+        '400':
+          description: Falta el archivo (`FILE_REQUIRED`) o el tipo no se puede subir (`INVALID_DOCUMENT_TYPE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: La solicitud del proveedor todavía no está aprobada (`APPLICATION_NOT_APPROVED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/supplier-documents/{id}/visibility:
     parameters:
@@ -4695,7 +4864,6 @@ components:
       type: object
       required:
         - title
-        - media
       properties:
         title:
           type: string
@@ -4705,7 +4873,8 @@ components:
           type: string
         media:
           type: array
-          minItems: 1
+          description: Opcional. Fotos subidas por quien registra el trabajo (categoría `photos` o `evidences`).
+          minItems: 0
           maxItems: 10
           items:
             type: object
