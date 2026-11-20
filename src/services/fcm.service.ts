@@ -6,6 +6,7 @@ import type {
   PushNotificationPayload,
   AlarmNotificationPayload,
   PushSendResult,
+  IncomingRequestAlarmPayload,
 } from '../types/device-token.types.ts';
 
 export interface MessagingClient {
@@ -170,6 +171,52 @@ export class FcmService {
         notification: {
           requireInteraction: true,
           tag: payload.tag ?? 'alarm',
+        },
+      },
+    };
+
+    return this.sendMulticast(message);
+  }
+
+  /**
+   * Aviso de solicitud entrante al técnico (API-28). En Android se manda solo con datos (título y
+   * cuerpo dentro de `data`, prioridad alta y vida corta): así llega a la app aunque esté cerrada
+   * y ella muestra la alarma a pantalla completa con su canal de sonido. En iOS va como alerta.
+   */
+  public async sendIncomingRequestAlarm(
+    userId: string | bigint,
+    payload: IncomingRequestAlarmPayload,
+  ): Promise<PushSendResult> {
+    const activeTokens = await deviceTokenService.getActiveTokensForUser(userId);
+    if (activeTokens.length === 0) {
+      return { successCount: 0, failureCount: 0, dispatchedTokens: [], invalidTokens: [] };
+    }
+
+    const ttlSeconds = payload.ttlSeconds ?? 5 * 60;
+    const message: MulticastMessage = {
+      tokens: activeTokens.map((t) => t.token),
+      data: {
+        ...(payload.data ?? {}),
+        title: payload.title,
+        body: payload.body,
+        is_alarm: 'true',
+        channel_id: payload.channelId ?? 'emergency_alarms',
+      },
+      android: {
+        priority: 'high',
+        ttl: ttlSeconds * 1000,
+      },
+      apns: {
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert',
+          'apns-expiration': String(Math.floor(Date.now() / 1000) + ttlSeconds),
+        },
+        payload: {
+          aps: {
+            alert: { title: payload.title, body: payload.body },
+            sound: 'default',
+          },
         },
       },
     };
