@@ -198,6 +198,38 @@ describe('API-23: Búsqueda de Proveedores por Radio, Categoría y Filtros', () 
       );
     });
 
+    it('rechaza min_rating fuera de 0 a 5', async () => {
+      for (const minRating of [-1, 5.5, NaN]) {
+        await assert.rejects(
+          () => searchService.searchBranches({ lat: 19.43, lng: -99.13, min_rating: minRating }),
+          (err: unknown) => {
+            assert.ok(err instanceof BadRequestError);
+            assert.match(
+              (err as BadRequestError).message,
+              /min_rating debe ser un número entre 0 y 5/,
+            );
+            return true;
+          },
+        );
+      }
+    });
+
+    it('rechaza max_price que no sea mayor a 0', async () => {
+      for (const maxPrice of [0, -100, NaN]) {
+        await assert.rejects(
+          () => searchService.searchBranches({ lat: 19.43, lng: -99.13, max_price: maxPrice }),
+          (err: unknown) => {
+            assert.ok(err instanceof BadRequestError);
+            assert.match(
+              (err as BadRequestError).message,
+              /max_price debe ser un número mayor a 0/,
+            );
+            return true;
+          },
+        );
+      }
+    });
+
     it('rechaza criterio de ordenamiento desconocido', async () => {
       await assert.rejects(
         async () => {
@@ -285,6 +317,51 @@ describe('API-23: Búsqueda de Proveedores por Radio, Categoría y Filtros', () 
         assert.equal(typed.data.length, 1);
         assert.equal(typed.data[0].id, '1');
         assert.equal(typed.pagination.total, 1);
+      } finally {
+        searchService.searchBranches = originalMethod;
+      }
+    });
+
+    it('pasa min_rating y max_price como números al servicio', async () => {
+      const originalMethod = searchService.searchBranches;
+      const calls: Parameters<typeof searchService.searchBranches>[0][] = [];
+      searchService.searchBranches = async (query) => {
+        calls.push(query);
+        return { data: [], pagination: { page: 1, limit: 20, total: 0, total_pages: 0 } };
+      };
+
+      try {
+        const req = {
+          query: { lat: '19.41', lng: '-99.16', min_rating: '4.5', max_price: '300' },
+        } as unknown as Request;
+        const res = { status: () => res, json: () => res } as unknown as Response;
+
+        await searchController.searchBranches(req, res, () => {});
+
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].min_rating, 4.5);
+        assert.equal(calls[0].max_price, 300);
+      } finally {
+        searchService.searchBranches = originalMethod;
+      }
+    });
+
+    it('sin min_rating ni max_price no los manda', async () => {
+      const originalMethod = searchService.searchBranches;
+      const calls: Parameters<typeof searchService.searchBranches>[0][] = [];
+      searchService.searchBranches = async (query) => {
+        calls.push(query);
+        return { data: [], pagination: { page: 1, limit: 20, total: 0, total_pages: 0 } };
+      };
+
+      try {
+        const req = { query: { lat: '19.41', lng: '-99.16' } } as unknown as Request;
+        const res = { status: () => res, json: () => res } as unknown as Response;
+
+        await searchController.searchBranches(req, res, () => {});
+
+        assert.equal(calls[0].min_rating, undefined);
+        assert.equal(calls[0].max_price, undefined);
       } finally {
         searchService.searchBranches = originalMethod;
       }

@@ -7,6 +7,13 @@ export interface SearchBranchesQuery {
   category_id?: string;
   sort?: SearchSortOption;
   available_now?: boolean;
+  /** Calificación promedio mínima, de 0 a 5. Sin reseñas cuenta como 0. */
+  min_rating?: number;
+  /**
+   * Precio base máximo. Con category_id se compara el precio de ese servicio; sin él, basta con
+   * que la sucursal tenga algún servicio a ese precio o menos.
+   */
+  max_price?: number;
   page?: number;
   limit?: number;
 }

@@ -110,6 +110,16 @@ export class SearchService {
     }
 
     const availableNow = Boolean(query.available_now);
+
+    const minRating = query.min_rating;
+    if (minRating !== undefined && (Number.isNaN(minRating) || minRating < 0 || minRating > 5)) {
+      throw new BadRequestError('El parámetro min_rating debe ser un número entre 0 y 5.');
+    }
+
+    const maxPrice = query.max_price;
+    if (maxPrice !== undefined && (Number.isNaN(maxPrice) || maxPrice <= 0)) {
+      throw new BadRequestError('El parámetro max_price debe ser un número mayor a 0.');
+    }
     const page = query.page && Number(query.page) > 0 ? Number(query.page) : 1;
     const limit = query.limit && Number(query.limit) > 0 ? Math.min(Number(query.limit), 50) : 20;
 
@@ -269,6 +279,11 @@ export class SearchService {
         const foundCat = categoriesForBranch.find((c) => c.categoryId === categoryIdBigInt);
         if (!foundCat) continue; // No ofrece la categoría buscada
         basePrice = Number(foundCat.basePrice).toFixed(2);
+        if (maxPrice !== undefined && Number(foundCat.basePrice) > maxPrice) continue;
+      } else if (maxPrice !== undefined) {
+        // Búsqueda general: basta con que algún servicio de la sucursal quepa en el precio.
+        const fitsPrice = categoriesForBranch.some((c) => Number(c.basePrice) <= maxPrice);
+        if (!fitsPrice) continue;
       }
 
       // Evaluar horario de atención
@@ -294,6 +309,8 @@ export class SearchService {
               (reviewsForBranch.reduce((acc, curr) => acc + curr.rating, 0) / reviewsCount) * 10,
             ) / 10
           : 0;
+
+      if (minRating !== undefined && ratingAvg < minRating) continue;
 
       // Foto de perfil
       let logoUrl: string | null = null;

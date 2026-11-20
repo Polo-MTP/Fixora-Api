@@ -5,11 +5,23 @@ import type { SearchSortOption } from '../types/search.types.ts';
 export class SearchController {
   /**
    * GET /api/search/branches
-   * Busca proveedores cercanos por radio, categoría, disponibilidad y ordenamiento (API-23).
+   * Busca proveedores cercanos por radio, categoría, disponibilidad, calificación mínima, precio
+   * máximo y ordenamiento (API-23).
    */
   async searchBranches(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { lat, lng, radius_km, category_id, sort, available_now, page, limit } = req.query;
+      const {
+        lat,
+        lng,
+        radius_km,
+        category_id,
+        sort,
+        available_now,
+        min_rating,
+        max_price,
+        page,
+        limit,
+      } = req.query;
 
       const result = await searchService.searchBranches({
         lat: Number(lat),
@@ -18,6 +30,8 @@ export class SearchController {
         category_id: typeof category_id === 'string' ? category_id : undefined,
         sort: typeof sort === 'string' ? (sort as SearchSortOption) : undefined,
         available_now: available_now === 'true',
+        min_rating: min_rating !== undefined ? Number(min_rating) : undefined,
+        max_price: max_price !== undefined ? Number(max_price) : undefined,
         page: page !== undefined ? Number(page) : undefined,
         limit: limit !== undefined ? Number(limit) : undefined,
       });
