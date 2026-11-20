@@ -5,16 +5,24 @@ import { ENV } from '../config/env.ts';
 import { redisKeys } from '../utils/redis-keys.ts';
 import { calculateHaversineDistanceKm } from '../utils/geo.utils.ts';
 import { publishRealtimeMessage } from '../realtime/websocket.server.ts';
-import { addresses, employees, service_requests } from '../database/schema/tables.ts';
+import {
+  addresses,
+  branches,
+  business_supplier,
+  employees,
+  service_requests,
+  suppliers,
+} from '../database/schema/tables.ts';
 import { ConflictError, ForbiddenError, NotFoundError } from '../errors/app-error.ts';
 import type {
   RequestTrackingData,
   RouteEta,
+  RouteLineStringGeometry,
   StoredTechnicianLocation,
   TechnicianLocationUpdate,
 } from '../types/tracking.types.ts';
 
-/** Intervalo mínimo entre consultas a Google Maps para la misma solicitud (1 minuto) */
+/** Intervalo mínimo entre consultas al motor de ruteo OSRM para la misma solicitud (1 minuto) */
 export const MIN_RECALCULATION_INTERVAL_MS = 60_000;
 
 /** Desviación física mínima en metros para forzar recálculo antes del intervalo */
@@ -28,6 +36,38 @@ const URBAN_AVERAGE_SPEED_MPS = 6.94;
 
 /** Factor de curvatura urbana respecto a la distancia euclidiana en línea recta */
 const URBAN_CURVATURE_FACTOR = 1.3;
+
+function encodeSignedNumber(num: number): string {
+  let sgnNum = num << 1;
+  if (num < 0) {
+    sgnNum = ~sgnNum;
+  }
+  let encoded = '';
+  while (sgnNum >= 0x20) {
+    encoded += String.fromCharCode((0x20 | (sgnNum & 0x1f)) + 63);
+    sgnNum >>= 5;
+  }
+  encoded += String.fromCharCode(sgnNum + 63);
+  return encoded;
+}
+
+/**
+ * Codifica una lista de coordenadas GeoJSON [lng, lat] en formato polyline estándar (precisión 5).
+ */
+export function encodePolylineFromLngLat(coordinates: [number, number][]): string {
+  let prevLat = 0;
+  let prevLng = 0;
+  let result = '';
+  for (const [lng, lat] of coordinates) {
+    const latE5 = Math.round(lat * 1e5);
+    const lngE5 = Math.round(lng * 1e5);
+    result += encodeSignedNumber(latE5 - prevLat);
+    result += encodeSignedNumber(lngE5 - prevLng);
+    prevLat = latE5;
+    prevLng = lngE5;
+  }
+  return result;
+}
 
 export class TrackingService {
   private inMemoryCache = new Map<string, string>();
@@ -85,6 +125,7 @@ export class TrackingService {
         status: service_requests.status,
         clientId: service_requests.client_id,
         employeeId: service_requests.employee_id,
+        branchId: service_requests.branch_id,
         addressId: service_requests.address_id,
         latitude: service_requests.latitude,
         longitude: service_requests.longitude,
@@ -106,27 +147,13 @@ export class TrackingService {
       );
     }
 
-    // 2. Validar que el usuario sea el técnico asignado a la solicitud
-    if (!request.employeeId) {
-      throw new ForbiddenError(
-        'La solicitud no tiene un técnico asignado.',
-        'INSUFFICIENT_PERMISSIONS',
-      );
-    }
-
-    const [assignment] = await db
-      .select({ id: employees.UniqueID })
-      .from(employees)
-      .where(
-        and(
-          eq(employees.UniqueID, request.employeeId),
-          eq(employees.user_id, actorId),
-          eq(employees.active, true),
-        ),
-      )
-      .limit(1);
-
-    if (!assignment) {
+    // 2. Validar que el usuario sea el técnico asignado (empleado o proveedor independiente)
+    const canReport = await this.canReportTechnicianLocation(
+      actorId,
+      request.employeeId,
+      request.branchId,
+    );
+    if (!canReport) {
       throw new ForbiddenError(
         'Solo el técnico asignado a esta solicitud puede reportar su posición.',
         'INSUFFICIENT_PERMISSIONS',
@@ -171,7 +198,7 @@ export class TrackingService {
       }
     }
 
-    // 5. Calcular o reutilizar ruta y ETA con Google Maps (API-33)
+    // 5. Calcular o reutilizar ruta y ETA para MapLibre + OpenFreeMap vía OSRM (API-33)
     let routeEta: RouteEta | null = null;
     if (
       destLat !== null &&
@@ -205,6 +232,8 @@ export class TrackingService {
             duration_seconds: routeEta.duration_seconds,
             distance_meters: routeEta.distance_meters,
             eta_timestamp: routeEta.eta_timestamp,
+            polyline: routeEta.polyline,
+            geometry: routeEta.geometry,
             is_fallback: routeEta.is_fallback,
           }
         : null,
@@ -231,8 +260,8 @@ export class TrackingService {
   }
 
   /**
-   * Obtiene la ruta y ETA de Redis si aún es vigente, o recalcula con Google Maps
-   * cuidando la cuota gratuita mediante intervalo y detección de desvío (API-33).
+   * Obtiene la ruta y ETA de Redis si aún es vigente, o recalcula con el motor OSRM (OpenStreetMap)
+   * cuidando el límite de uso mediante intervalo y detección de desvío (API-33).
    */
   async getOrCalculateRouteEta(
     requestId: bigint | string,
@@ -241,6 +270,7 @@ export class TrackingService {
     destLat: number,
     destLng: number,
     forceRecalculate = false,
+    customFetch: typeof fetch = fetch,
   ): Promise<RouteEta> {
     const key = redisKeys.requestRouteEta(requestId);
     const now = Date.now();
@@ -311,12 +341,13 @@ export class TrackingService {
       };
     }
 
-    // Recalcular ruta y tiempo estimado
-    const result = await this.calculateRouteWithGoogleMaps(
+    // Recalcular ruta y tiempo estimado con OSRM para MapLibre + OpenFreeMap
+    const result = await this.calculateRouteWithOsrm(
       technicianLat,
       technicianLng,
       destLat,
       destLng,
+      customFetch,
     );
 
     const routeEta: RouteEta = {
@@ -324,6 +355,7 @@ export class TrackingService {
       distance_meters: result.distance_meters,
       eta_timestamp: result.eta_timestamp,
       polyline: result.polyline,
+      geometry: result.geometry,
       last_calculated_at: now,
       last_technician_lat: technicianLat,
       last_technician_lng: technicianLng,
@@ -336,34 +368,37 @@ export class TrackingService {
   }
 
   /**
-   * Consulta a la API de Google Maps Directions con timeout y degradación elegante a cálculo estimado (API-33).
+   * Consulta al motor de ruteo OSRM (OpenStreetMap) devolviendo geometría GeoJSON LineString
+   * nativa para MapLibre + OpenFreeMap y polilínea codificada, con timeout y fallback (API-33).
    */
-  async calculateRouteWithGoogleMaps(
+  async calculateRouteWithOsrm(
     originLat: number,
     originLng: number,
     destLat: number,
     destLng: number,
+    customFetch: typeof fetch = fetch,
+    baseUrl: string = ENV.ROUTING_API_URL,
   ): Promise<{
     duration_seconds: number;
     distance_meters: number;
     eta_timestamp: string;
     polyline: string | null;
+    geometry: RouteLineStringGeometry | null;
     is_fallback: boolean;
   }> {
-    const apiKey = ENV.GOOGLE_MAPS_API_KEY;
-
-    // Si no se configuró API key, recurrir directamente al cálculo estimado
-    if (!apiKey || !apiKey.trim()) {
+    if (!baseUrl || !baseUrl.trim()) {
       return this.calculateEstimatedRoute(originLat, originLng, destLat, destLng);
     }
 
+    const cleanBaseUrl = baseUrl.trim().replace(/\/+$/, '');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 segundos de timeout
 
     try {
-      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&mode=driving&key=${encodeURIComponent(apiKey)}`;
+      // Estándar OSRM / GeoJSON / MapLibre: longitud primero, latitud después ({lng},{lat})
+      const url = `${cleanBaseUrl}/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson`;
 
-      const response = await fetch(url, { signal: controller.signal });
+      const response = await customFetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
       if (!response.ok) {
@@ -371,22 +406,30 @@ export class TrackingService {
       }
 
       const data = (await response.json()) as {
-        status?: string;
+        code?: string;
         routes?: Array<{
-          overview_polyline?: { points?: string };
-          legs?: Array<{
-            distance?: { value?: number };
-            duration?: { value?: number };
-          }>;
+          distance?: number;
+          duration?: number;
+          geometry?: {
+            type?: string;
+            coordinates?: [number, number][];
+          };
         }>;
       };
 
-      if (data.status === 'OK' && data.routes && data.routes.length > 0) {
-        const leg = data.routes[0].legs?.[0];
-        const durationSeconds = leg?.duration?.value ?? 0;
-        const distanceMeters = leg?.distance?.value ?? 0;
-        const polyline = data.routes[0].overview_polyline?.points ?? null;
+      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+        const durationSeconds = Math.max(1, Math.round(route.duration ?? 0));
+        const distanceMeters = Math.round(route.distance ?? 0);
+        const rawCoords = Array.isArray(route.geometry?.coordinates)
+          ? route.geometry.coordinates
+          : [[originLng, originLat] as [number, number], [destLng, destLat] as [number, number]];
 
+        const geometry: RouteLineStringGeometry = {
+          type: 'LineString',
+          coordinates: rawCoords,
+        };
+        const polyline = encodePolylineFromLngLat(rawCoords);
         const etaTimestamp = new Date(Date.now() + durationSeconds * 1000).toISOString();
 
         return {
@@ -394,11 +437,11 @@ export class TrackingService {
           distance_meters: distanceMeters,
           eta_timestamp: etaTimestamp,
           polyline,
+          geometry,
           is_fallback: false,
         };
       }
 
-      // Si Google responde OVER_QUERY_LIMIT, REQUEST_DENIED o ZERO_RESULTS, usar fallback
       return this.calculateEstimatedRoute(originLat, originLng, destLat, destLng);
     } catch {
       clearTimeout(timeoutId);
@@ -408,6 +451,7 @@ export class TrackingService {
 
   /**
    * Cálculo estimado de ruta mediante fórmula Haversine y velocidad promedio urbana (fallback) (API-33).
+   * Genera también una geometría LineString directa para que MapLibre pueda trazar la línea.
    */
   calculateEstimatedRoute(
     originLat: number,
@@ -419,6 +463,7 @@ export class TrackingService {
     distance_meters: number;
     eta_timestamp: string;
     polyline: string | null;
+    geometry: RouteLineStringGeometry;
     is_fallback: boolean;
   } {
     const distanceKm = calculateHaversineDistanceKm(originLat, originLng, destLat, destLng);
@@ -429,11 +474,20 @@ export class TrackingService {
     const durationSeconds = Math.max(60, Math.round(distanceMeters / URBAN_AVERAGE_SPEED_MPS));
     const etaTimestamp = new Date(Date.now() + durationSeconds * 1000).toISOString();
 
+    const coordinates: [number, number][] = [
+      [originLng, originLat],
+      [destLng, destLat],
+    ];
+
     return {
       duration_seconds: durationSeconds,
       distance_meters: distanceMeters,
       eta_timestamp: etaTimestamp,
-      polyline: null,
+      polyline: encodePolylineFromLngLat(coordinates),
+      geometry: {
+        type: 'LineString',
+        coordinates,
+      },
       is_fallback: true,
     };
   }
@@ -447,15 +501,147 @@ export class TrackingService {
   }
 
   /**
+   * Verifica si el usuario autenticado es el técnico asignado a la solicitud
+   * (sea cuenta con rol 'empleado' o proveedor independiente dueño de la sucursal).
+   */
+  async canReportTechnicianLocation(
+    actorId: bigint,
+    employeeId: bigint | null,
+    branchId: bigint | null,
+  ): Promise<boolean> {
+    if (employeeId !== null) {
+      const [assignment] = await db
+        .select({ id: employees.UniqueID })
+        .from(employees)
+        .where(
+          and(
+            eq(employees.UniqueID, employeeId),
+            eq(employees.user_id, actorId),
+            eq(employees.active, true),
+          ),
+        )
+        .limit(1);
+
+      if (assignment) return true;
+    }
+
+    if (branchId !== null) {
+      const [independentOwner] = await db
+        .select({ id: branches.UniqueID })
+        .from(branches)
+        .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+        .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+        .where(
+          and(
+            eq(branches.UniqueID, branchId),
+            eq(suppliers.user_id, actorId),
+            eq(suppliers.supplier_type, 'independiente'),
+            eq(suppliers.active, true),
+            eq(business_supplier.active, true),
+          ),
+        )
+        .limit(1);
+
+      if (independentOwner) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Verifica de forma estricta que solo los involucrados directos en la solicitud
+   * puedan consultar la ubicación y el ETA en tiempo real (evita fugas de privacidad).
+   */
+  async canAccessRequestTracking(
+    actor: { id: string; role: string },
+    request: { clientId: bigint; employeeId: bigint | null; branchId: bigint | null },
+  ): Promise<boolean> {
+    const actorId = BigInt(actor.id);
+    const role = actor.role.trim().toLowerCase();
+
+    if (role === 'cliente') {
+      return request.clientId === actorId;
+    }
+
+    if (role === 'empleado') {
+      if (request.employeeId === null) return false;
+      const [assignment] = await db
+        .select({ id: employees.UniqueID })
+        .from(employees)
+        .where(
+          and(
+            eq(employees.UniqueID, request.employeeId),
+            eq(employees.user_id, actorId),
+            eq(employees.active, true),
+          ),
+        )
+        .limit(1);
+      return Boolean(assignment);
+    }
+
+    if (role === 'gerente') {
+      if (request.branchId === null) return false;
+      const [branchAssignment] = await db
+        .select({ id: employees.UniqueID })
+        .from(employees)
+        .where(
+          and(
+            eq(employees.user_id, actorId),
+            eq(employees.branch_id, request.branchId),
+            eq(employees.active, true),
+          ),
+        )
+        .limit(1);
+      return Boolean(branchAssignment);
+    }
+
+    if (role === 'proveedor') {
+      if (request.employeeId !== null) {
+        const [directAssignment] = await db
+          .select({ id: employees.UniqueID })
+          .from(employees)
+          .where(
+            and(
+              eq(employees.UniqueID, request.employeeId),
+              eq(employees.user_id, actorId),
+              eq(employees.active, true),
+            ),
+          )
+          .limit(1);
+        if (directAssignment) return true;
+      }
+
+      if (request.branchId !== null) {
+        const [ownedBranch] = await db
+          .select({ id: branches.UniqueID })
+          .from(branches)
+          .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+          .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+          .where(
+            and(
+              eq(branches.UniqueID, request.branchId),
+              eq(suppliers.user_id, actorId),
+              eq(suppliers.active, true),
+              eq(business_supplier.active, true),
+            ),
+          )
+          .limit(1);
+        if (ownedBranch) return true;
+      }
+
+      return false;
+    }
+
+    return false;
+  }
+
+  /**
    * Consulta el estado de tracking actual (posición y ruta/ETA) de una solicitud (API-33).
    */
   async getRequestTracking(
     requestId: bigint,
     actor: { id: string; role: string },
   ): Promise<RequestTrackingData> {
-    const actorId = BigInt(actor.id);
-    const role = actor.role.trim().toLowerCase();
-
     const [request] = await db
       .select({
         id: service_requests.UniqueID,
@@ -472,36 +658,41 @@ export class TrackingService {
       throw new NotFoundError('La solicitud de servicio no existe.');
     }
 
-    // Validar permisos de acceso
-    if (role === 'cliente' && request.clientId !== actorId) {
+    // Validar permisos de acceso para todos los roles (evitar fuga de privacidad entre cuentas/sucursales)
+    const allowed = await this.canAccessRequestTracking(actor, request);
+    if (!allowed) {
       throw new ForbiddenError(
         'No tienes permiso para consultar el tracking de esta solicitud.',
         'INSUFFICIENT_PERMISSIONS',
       );
     }
 
+    const currentStatus = request.status === 'en_curso' ? 'en_camino' : request.status;
+
     let storedLocation: StoredTechnicianLocation | null = null;
     let storedEta: RouteEta | null = null;
 
-    try {
-      const rawLocation = await this.cacheGet(redisKeys.requestTechnicianLocation(requestId));
-      if (rawLocation) {
-        storedLocation = JSON.parse(rawLocation) as StoredTechnicianLocation;
-      }
+    // Solo exponer ubicación y ruta mientras el técnico está efectivamente en camino
+    if (currentStatus === 'en_camino') {
+      try {
+        const rawLocation = await this.cacheGet(redisKeys.requestTechnicianLocation(requestId));
+        if (rawLocation) {
+          storedLocation = JSON.parse(rawLocation) as StoredTechnicianLocation;
+        }
 
-      const rawEta = await this.cacheGet(redisKeys.requestRouteEta(requestId));
-      if (rawEta) {
-        storedEta = JSON.parse(rawEta) as RouteEta;
+        const rawEta = await this.cacheGet(redisKeys.requestRouteEta(requestId));
+        if (rawEta) {
+          storedEta = JSON.parse(rawEta) as RouteEta;
+        }
+      } catch {
+        // Ignorar fallos de formato y devolver null
       }
-    } catch {
-      // Ignorar fallos de formato y devolver null
     }
-
-    const currentStatus = request.status === 'en_curso' ? 'en_camino' : request.status;
 
     return {
       requestId: requestId.toString(),
       status: currentStatus,
+      map_style_url: ENV.OPENFREEMAP_STYLE_URL,
       technician_location: storedLocation,
       route_eta: storedEta
         ? {
@@ -509,6 +700,7 @@ export class TrackingService {
             distance_meters: storedEta.distance_meters,
             eta_timestamp: storedEta.eta_timestamp,
             polyline: storedEta.polyline,
+            geometry: storedEta.geometry ?? null,
             is_fallback: storedEta.is_fallback,
           }
         : null,

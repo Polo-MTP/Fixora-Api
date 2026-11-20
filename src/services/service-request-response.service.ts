@@ -87,7 +87,7 @@ async function assertCanManageEmployee(
       and(
         eq(employees.UniqueID, employeeId),
         eq(users.state, 'activo'),
-        eq(roles.name, 'empleado'),
+        inArray(roles.name, ['empleado', 'proveedor']),
         eq(roles.active, true),
       ),
     )

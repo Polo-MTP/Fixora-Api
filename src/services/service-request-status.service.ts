@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 import { db } from '../config/database.ts';
@@ -209,9 +209,40 @@ async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
         ),
       );
     const branchIds = ownedBranches.map((branch) => branch.id);
+    const assignments = await db
+      .select({ id: employees.UniqueID })
+      .from(employees)
+      .where(and(eq(employees.user_id, actorId), eq(employees.active, true)));
+    const employeeIds = assignments.map((assignment) => assignment.id);
+
+    const conditions: SQL[] = [];
+    if (branchIds.length) {
+      conditions.push(inArray(service_requests.branch_id, branchIds));
+    }
+    if (employeeIds.length) {
+      conditions.push(inArray(service_requests.employee_id, employeeIds));
+      conditions.push(
+        and(
+          eq(service_requests.status, 'pendiente'),
+          exists(
+            db
+              .select({ id: request_dispatches.UniqueID })
+              .from(request_dispatches)
+              .where(
+                and(
+                  eq(request_dispatches.request_id, service_requests.UniqueID),
+                  inArray(request_dispatches.employee_id, employeeIds),
+                  isNull(request_dispatches.response),
+                ),
+              ),
+          ),
+        )!,
+      );
+    }
+
     return {
-      condition: branchIds.length ? inArray(service_requests.branch_id, branchIds) : sql`false`,
-      employeeIds: [],
+      condition: conditions.length ? or(...conditions)! : sql`false`,
+      employeeIds,
     };
   }
 
@@ -233,17 +264,21 @@ async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
     }
 
     if (!employeeIds.length) return { condition: sql`false`, employeeIds };
-    const dispatchMatch = exists(
-      db
-        .select({ id: request_dispatches.UniqueID })
-        .from(request_dispatches)
-        .where(
-          and(
-            eq(request_dispatches.request_id, service_requests.UniqueID),
-            inArray(request_dispatches.employee_id, employeeIds),
+    const dispatchMatch = and(
+      eq(service_requests.status, 'pendiente'),
+      exists(
+        db
+          .select({ id: request_dispatches.UniqueID })
+          .from(request_dispatches)
+          .where(
+            and(
+              eq(request_dispatches.request_id, service_requests.UniqueID),
+              inArray(request_dispatches.employee_id, employeeIds),
+              isNull(request_dispatches.response),
+            ),
           ),
-        ),
-    );
+      ),
+    )!;
     return {
       condition: or(inArray(service_requests.employee_id, employeeIds), dispatchMatch)!,
       employeeIds,
@@ -520,7 +555,8 @@ export async function advanceServiceRequestStatus(
   rawInput: unknown,
 ) {
   const input = validateStatusChange(rawInput);
-  if (actor.role.trim().toLowerCase() !== 'empleado') {
+  const normalizedRole = actor.role.trim().toLowerCase();
+  if (normalizedRole !== 'empleado' && normalizedRole !== 'proveedor') {
     throw new ForbiddenError(
       'Solo el técnico asignado puede avanzar el estado de la solicitud.',
       'INSUFFICIENT_PERMISSIONS',
@@ -532,6 +568,7 @@ export async function advanceServiceRequestStatus(
   const now = new Date();
   let updatedRequest: typeof service_requests.$inferSelect | null = null;
   let fromStatus = '';
+  const shouldSaveCoordinates = ['en_camino', 'llegado'].includes(target);
 
   await db.transaction(async (tx) => {
     const [current] = await tx
@@ -558,7 +595,28 @@ export async function advanceServiceRequestStatus(
         ),
       )
       .limit(1);
-    if (!assignment) throw new NotFoundError();
+
+    let isIndependentOwner = false;
+    if (!assignment && normalizedRole === 'proveedor' && current.branch_id !== null) {
+      const [owned] = await tx
+        .select({ id: branches.UniqueID })
+        .from(branches)
+        .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+        .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+        .where(
+          and(
+            eq(branches.UniqueID, current.branch_id),
+            eq(suppliers.user_id, actorId),
+            eq(suppliers.supplier_type, 'independiente'),
+            eq(suppliers.active, true),
+            eq(business_supplier.active, true),
+          ),
+        )
+        .limit(1);
+      isIndependentOwner = Boolean(owned);
+    }
+
+    if (!assignment && !isIndependentOwner) throw new NotFoundError();
 
     const currentStatus = publicStatus(current.status);
     if (!isValidServiceRequestTransition(currentStatus, target)) {
@@ -582,7 +640,6 @@ export async function advanceServiceRequestStatus(
     if (!updated) throw new NotFoundError();
 
     // Guardar latitud y longitud solo al aceptar, salir (en_camino) y llegar (llegado) (API-34)
-    const shouldSaveCoordinates = ['en_camino', 'llegado'].includes(target);
     await tx.insert(service_request_events).values({
       request_id: requestId,
       from_status: current.status,
@@ -616,8 +673,8 @@ export async function advanceServiceRequestStatus(
     clientId: updatedRequest!.client_id.toString(),
     employeeId: updatedRequest!.employee_id?.toString() ?? null,
     branchId: updatedRequest!.branch_id?.toString() ?? null,
-    latitude: input.latitude,
-    longitude: input.longitude,
+    latitude: shouldSaveCoordinates ? input.latitude : undefined,
+    longitude: shouldSaveCoordinates ? input.longitude : undefined,
     historyPersisted: true,
   });
   await eventBus.notify(event);

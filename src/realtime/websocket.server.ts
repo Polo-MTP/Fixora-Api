@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
-import { and, eq, gt, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { db } from '../config/database.ts';
 import {
   employees,
@@ -137,6 +137,7 @@ async function canJoinRequestRoom(
   const [request] = await db
     .select({
       id: service_requests.UniqueID,
+      status: service_requests.status,
       clientId: service_requests.client_id,
       employeeId: service_requests.employee_id,
       branchId: service_requests.branch_id,
@@ -149,14 +150,18 @@ async function canJoinRequestRoom(
   if (request.clientId === actorId) return true;
 
   const normalizedRole = role.trim().toLowerCase();
-  if (normalizedRole === 'empleado' || normalizedRole === 'gerente') {
+  if (
+    normalizedRole === 'empleado' ||
+    normalizedRole === 'gerente' ||
+    normalizedRole === 'proveedor'
+  ) {
     const assignments = await db
       .select({ id: employees.UniqueID })
       .from(employees)
       .where(and(eq(employees.user_id, actorId), eq(employees.active, true)));
     const employeeIds = assignments.map((item) => item.id);
     if (request.employeeId && employeeIds.includes(request.employeeId)) return true;
-    if (employeeIds.length) {
+    if (employeeIds.length && request.status === 'pendiente') {
       const [dispatch] = await db
         .select({ id: request_dispatches.UniqueID })
         .from(request_dispatches)
@@ -164,6 +169,7 @@ async function canJoinRequestRoom(
           and(
             eq(request_dispatches.request_id, requestId),
             inArray(request_dispatches.employee_id, employeeIds),
+            isNull(request_dispatches.response),
           ),
         )
         .limit(1);
@@ -316,7 +322,8 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
   }
 
   if (message.type === 'technician_location' || message.type === 'location_update') {
-    if (socket.role?.trim().toLowerCase() !== 'empleado') {
+    const normalizedRole = socket.role?.trim().toLowerCase();
+    if (normalizedRole !== 'empleado' && normalizedRole !== 'proveedor') {
       send(socket, {
         type: 'error',
         code: 'FORBIDDEN',
@@ -384,6 +391,8 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
               duration_seconds: routeEta.duration_seconds,
               distance_meters: routeEta.distance_meters,
               eta_timestamp: routeEta.eta_timestamp,
+              polyline: routeEta.polyline,
+              geometry: routeEta.geometry,
               is_fallback: routeEta.is_fallback,
             }
           : null,
