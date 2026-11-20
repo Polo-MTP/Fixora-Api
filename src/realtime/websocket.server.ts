@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
-import { and, eq, gt, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { db } from '../config/database.ts';
 import {
   employees,
@@ -15,6 +15,7 @@ import {
   business_supplier,
 } from '../database/schema/tables.ts';
 import type { RealTimeMessage } from '../events/observers/realtime.observer.ts';
+import { trackingService } from '../services/tracking.service.ts';
 
 const WS_PATH = '/ws';
 const AUTH_TIMEOUT_MS = 5_000;
@@ -45,6 +46,11 @@ interface ClientMessage {
   type?: unknown;
   token?: unknown;
   requestId?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  heading?: unknown;
+  speed?: unknown;
+  timestamp?: unknown;
 }
 
 const sockets = new Set<AuthenticatedSocket>();
@@ -131,6 +137,7 @@ async function canJoinRequestRoom(
   const [request] = await db
     .select({
       id: service_requests.UniqueID,
+      status: service_requests.status,
       clientId: service_requests.client_id,
       employeeId: service_requests.employee_id,
       branchId: service_requests.branch_id,
@@ -143,14 +150,18 @@ async function canJoinRequestRoom(
   if (request.clientId === actorId) return true;
 
   const normalizedRole = role.trim().toLowerCase();
-  if (normalizedRole === 'empleado' || normalizedRole === 'gerente') {
+  if (
+    normalizedRole === 'empleado' ||
+    normalizedRole === 'gerente' ||
+    normalizedRole === 'proveedor'
+  ) {
     const assignments = await db
       .select({ id: employees.UniqueID })
       .from(employees)
       .where(and(eq(employees.user_id, actorId), eq(employees.active, true)));
     const employeeIds = assignments.map((item) => item.id);
     if (request.employeeId && employeeIds.includes(request.employeeId)) return true;
-    if (employeeIds.length) {
+    if (employeeIds.length && request.status === 'pendiente') {
       const [dispatch] = await db
         .select({ id: request_dispatches.UniqueID })
         .from(request_dispatches)
@@ -158,6 +169,7 @@ async function canJoinRequestRoom(
           and(
             eq(request_dispatches.request_id, requestId),
             inArray(request_dispatches.employee_id, employeeIds),
+            isNull(request_dispatches.response),
           ),
         )
         .limit(1);
@@ -306,6 +318,95 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
     const room = `requests:${message.requestId}`;
     leaveRoom(socket, room);
     send(socket, { type: 'unsubscribed', room });
+    return;
+  }
+
+  if (message.type === 'technician_location' || message.type === 'location_update') {
+    const normalizedRole = socket.role?.trim().toLowerCase();
+    if (normalizedRole !== 'empleado' && normalizedRole !== 'proveedor') {
+      send(socket, {
+        type: 'error',
+        code: 'FORBIDDEN',
+        message: 'Solo los técnicos pueden reportar su ubicación en tiempo real.',
+      });
+      return;
+    }
+
+    const requestIdStr = String(message.requestId ?? '').trim();
+    if (!/^[1-9]\d{0,17}$/.test(requestIdStr)) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_REQUEST_ID',
+        message: 'requestId no es válido.',
+      });
+      return;
+    }
+
+    const lat = Number(message.latitude);
+    const lng = Number(message.longitude);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_COORDINATES',
+        message: 'La latitud debe ser un número entre -90 y 90.',
+      });
+      return;
+    }
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_COORDINATES',
+        message: 'La longitud debe ser un número entre -180 y 180.',
+      });
+      return;
+    }
+
+    const heading =
+      typeof message.heading === 'number' && Number.isFinite(message.heading)
+        ? message.heading
+        : null;
+    const speed =
+      typeof message.speed === 'number' && Number.isFinite(message.speed) ? message.speed : null;
+    const timestamp = typeof message.timestamp === 'string' ? message.timestamp : undefined;
+
+    try {
+      const { location, routeEta } = await trackingService.recordTechnicianLocation(
+        requestIdStr,
+        socket.userId!,
+        {
+          latitude: lat,
+          longitude: lng,
+          heading,
+          speed,
+          timestamp,
+        },
+      );
+
+      send(socket, {
+        type: 'location_recorded',
+        requestId: requestIdStr,
+        location,
+        eta: routeEta
+          ? {
+              duration_seconds: routeEta.duration_seconds,
+              distance_meters: routeEta.distance_meters,
+              eta_timestamp: routeEta.eta_timestamp,
+              polyline: routeEta.polyline,
+              geometry: routeEta.geometry,
+              is_fallback: routeEta.is_fallback,
+            }
+          : null,
+      });
+    } catch (err: unknown) {
+      const errMessage =
+        err instanceof Error ? err.message : 'No fue posible registrar la ubicación.';
+      const code = (err as { code?: string })?.code || 'LOCATION_UPDATE_FAILED';
+      send(socket, {
+        type: 'error',
+        code,
+        message: errMessage,
+      });
+    }
     return;
   }
 

@@ -149,10 +149,15 @@ export class NotificationObserver implements Observer<DomainEvent> {
         'Tu solicitud expiró porque ningún técnico la aceptó dentro de los 5 minutos. Puedes crear una nueva solicitud.';
     }
 
+    const title =
+      toStatus === 'llegado'
+        ? '¡Tu técnico ha llegado!'
+        : `Actualización de Solicitud #${requestId}`;
+
     await this.dispatch({
       userId: clientId,
       type: `solicitud_${toStatus}`,
-      title: `Actualización de Solicitud #${requestId}`,
+      title,
       message,
       entityType: 'service_request',
       entityId: requestId,
