@@ -10,10 +10,12 @@ import {
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
   type SupplierApplicationCreatedPayload,
+  type ChatMessageSentPayload,
 } from '../events/domain-events.ts';
 import { db } from '../../config/database.ts';
 import { notifications, roles, users } from '../../database/schema/tables.ts';
 import { fcmService } from '../../services/fcm.service.ts';
+import { hasActiveConnection } from '../../realtime/websocket.server.ts';
 
 export interface NotificationRecord {
   userId: string;
@@ -27,23 +29,30 @@ export interface NotificationRecord {
 export type NotificationPersister = (record: NotificationRecord) => Promise<void>;
 export type NotificationPushSender = (record: NotificationRecord) => Promise<void>;
 export type AdministratorRecipientProvider = () => Promise<string[]>;
+/** Indica si el usuario tiene la app conectada en este momento (WebSocket abierto). */
+export type PresenceChecker = (userId: string) => Promise<boolean> | boolean;
+
+const MAX_RETAINED_RECORDS = 500;
 
 export class NotificationObserver implements Observer<DomainEvent> {
   public readonly name = 'NotificationObserver';
   private readonly persister: NotificationPersister;
   private readonly pushSender: NotificationPushSender;
   private readonly administratorRecipientProvider: AdministratorRecipientProvider;
+  private readonly presenceChecker: PresenceChecker;
   private readonly dispatchedRecords: NotificationRecord[] = [];
 
   constructor(
     customPersister?: NotificationPersister,
     customPushSender?: NotificationPushSender,
     customAdministratorRecipientProvider?: AdministratorRecipientProvider,
+    customPresenceChecker?: PresenceChecker,
   ) {
     this.persister = customPersister ?? this.defaultDatabasePersister;
     this.pushSender = customPushSender ?? this.defaultPushSender;
     this.administratorRecipientProvider =
       customAdministratorRecipientProvider ?? this.defaultAdministratorRecipientProvider;
+    this.presenceChecker = customPresenceChecker ?? hasActiveConnection;
   }
 
   private async defaultDatabasePersister(record: NotificationRecord): Promise<void> {
@@ -81,8 +90,14 @@ export class NotificationObserver implements Observer<DomainEvent> {
     return administrators.map((administrator) => administrator.id.toString());
   }
 
-  private async dispatch(record: NotificationRecord): Promise<void> {
+  private remember(record: NotificationRecord): void {
+    // Solo para pruebas; se acota para no crecer sin límite en producción.
     this.dispatchedRecords.push(record);
+    if (this.dispatchedRecords.length > MAX_RETAINED_RECORDS) this.dispatchedRecords.shift();
+  }
+
+  private async dispatch(record: NotificationRecord): Promise<void> {
+    this.remember(record);
     // El registro persistente es la fuente de verdad; un fallo de FCM no debe perderlo.
     await this.persister(record);
     try {
@@ -118,6 +133,9 @@ export class NotificationObserver implements Observer<DomainEvent> {
         await this.handleSupplierApplicationCreated(
           event.payload as SupplierApplicationCreatedPayload,
         );
+        break;
+      case DOMAIN_EVENTS.CHAT_MESSAGE_SENT:
+        await this.handleChatMessage(event.payload as ChatMessageSentPayload);
         break;
       default:
         break;
@@ -289,6 +307,32 @@ export class NotificationObserver implements Observer<DomainEvent> {
 
     for (const userId of administratorIds) {
       await this.dispatch({ userId, ...recordBase });
+    }
+  }
+
+  /**
+   * Push de un mensaje del chat (API-35). Solo se envía si el destinatario no tiene la app
+   * conectada: con la app abierta ya lo recibe por WebSocket. No se guarda en el centro de
+   * notificaciones para no llenarlo con un registro por mensaje.
+   */
+  private async handleChatMessage(payload: ChatMessageSentPayload): Promise<void> {
+    for (const userId of payload.recipientUserIds) {
+      try {
+        if (await this.presenceChecker(userId)) continue;
+
+        const record: NotificationRecord = {
+          userId,
+          type: 'chat_message',
+          title: `Mensaje de ${payload.senderName}`,
+          message: payload.preview,
+          entityType: 'service_request',
+          entityId: payload.requestId,
+        };
+        this.remember(record);
+        await this.pushSender(record);
+      } catch (error) {
+        console.error('[NotificationObserver] No fue posible enviar el push del chat:', error);
+      }
     }
   }
 

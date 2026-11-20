@@ -13,6 +13,7 @@ import {
   numeric,
   integer,
   uniqueIndex,
+  index,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import {
@@ -535,42 +536,71 @@ export const commission_settings = pgTable('commission_settings', {
 // MÓDULO: Chat
 // ============================================================================
 
-export const conversations = pgTable('conversations', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  request_id: bigint('request_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => service_requests.UniqueID),
-  status: varchar('status', { length: 50 }).notNull().default('abierta'),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-});
+export const conversations = pgTable(
+  'conversations',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    request_id: bigint('request_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => service_requests.UniqueID),
+    status: varchar('status', { length: 50 }).notNull().default('abierta'),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    // API-35: una conversación por solicitud.
+    requestUnique: uniqueIndex('conversations_request_id_unique').on(table.request_id),
+  }),
+);
 
-export const request_messages = pgTable('request_messages', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  conversation_id: bigint('conversation_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => conversations.UniqueID),
-  sender_id: bigint('sender_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  message: text('message').notNull(),
-  message_reply_id: bigint('message_reply_id', { mode: 'bigint' }).references(
-    (): AnyPgColumn => request_messages.UniqueID,
-  ),
-  client_uuid: varchar('client_uuid', { length: 100 }),
-  read_at: timestamp('read_at'),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-});
+export const request_messages = pgTable(
+  'request_messages',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    conversation_id: bigint('conversation_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => conversations.UniqueID),
+    sender_id: bigint('sender_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    // Null cuando el mensaje solo lleva fotos (API-35).
+    message: text('message'),
+    message_reply_id: bigint('message_reply_id', { mode: 'bigint' }).references(
+      (): AnyPgColumn => request_messages.UniqueID,
+    ),
+    client_uuid: varchar('client_uuid', { length: 100 }),
+    read_at: timestamp('read_at'),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    clientUuidUnique: uniqueIndex('request_messages_client_uuid_unique')
+      .on(table.conversation_id, table.sender_id, table.client_uuid)
+      .where(sql`${table.client_uuid} IS NOT NULL`),
+    conversationIdx: index('request_messages_conversation_idx').on(
+      table.conversation_id,
+      table.UniqueID,
+    ),
+    unreadIdx: index('request_messages_unread_idx')
+      .on(table.conversation_id)
+      .where(sql`${table.read_at} IS NULL`),
+  }),
+);
 
-export const message_attachments = pgTable('message_attachments', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  message_id: bigint('message_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => request_messages.UniqueID),
-  storage_key: varchar('storage_key', { length: 500 }).notNull(),
-  mime_type: attachmentMimeTypeEnum('mime_type').notNull(),
-  size_bytes: integer('size_bytes'),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-});
+export const message_attachments = pgTable(
+  'message_attachments',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    message_id: bigint('message_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => request_messages.UniqueID),
+    storage_key: varchar('storage_key', { length: 500 }).notNull(),
+    mime_type: attachmentMimeTypeEnum('mime_type').notNull(),
+    size_bytes: integer('size_bytes'),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    messageIdx: index('message_attachments_message_idx').on(table.message_id),
+  }),
+);
 
 // ============================================================================
 // MÓDULO: Reseñas y reportes

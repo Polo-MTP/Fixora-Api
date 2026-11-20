@@ -53,6 +53,11 @@ export function setupDomainEventObservers(
   bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, realtimeObserver);
   bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, emailObserver);
 
+  // Chat por solicitud (API-35): tiempo real para todos, push solo en CHAT_MESSAGE_SENT.
+  bus.register(DOMAIN_EVENTS.CHAT_MESSAGE_SENT, notificationObserver);
+  bus.register(DOMAIN_EVENTS.CHAT_MESSAGE_SENT, realtimeObserver);
+  bus.register(DOMAIN_EVENTS.CHAT_MESSAGES_READ, realtimeObserver);
+
   return {
     bus,
     notificationObserver,

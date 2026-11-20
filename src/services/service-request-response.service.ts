@@ -4,6 +4,7 @@ import {
     branches,
     branches_categories,
     business_supplier,
+    conversations,
     employees,
     request_dispatches,
     roles,
@@ -244,6 +245,12 @@ export async function acceptServiceRequest(
         if (!updated) {
             throw new ConflictError('Otro técnico ya aceptó la solicitud.', 'REQUEST_NOT_PENDING');
         }
+
+        // API-35: el chat de la solicitud queda disponible desde que se acepta.
+        await tx
+            .insert(conversations)
+            .values({ request_id: requestId })
+            .onConflictDoNothing({ target: conversations.request_id });
 
         if (request.is_emergency) {
             await tx

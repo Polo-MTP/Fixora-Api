@@ -15,9 +15,11 @@ import {
   business_supplier,
 } from '../database/schema/tables.ts';
 import type { RealTimeMessage } from '../events/observers/realtime.observer.ts';
+import { canAccessChat } from '../services/chat.service.ts';
 
 const WS_PATH = '/ws';
 const AUTH_TIMEOUT_MS = 5_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const JWT_ISSUER = 'fixora-api';
 const JWT_AUDIENCE = 'fixora-client';
@@ -36,6 +38,7 @@ interface AuthenticatedSocket extends WebSocket {
   sessionId?: string;
   accessToken?: string;
   authenticated?: boolean;
+  isAlive?: boolean;
   rooms: Set<string>;
   authTimer?: NodeJS.Timeout;
   sessionCheckTimer?: NodeJS.Timeout;
@@ -50,6 +53,7 @@ interface ClientMessage {
 const sockets = new Set<AuthenticatedSocket>();
 const rooms = new Map<string, Set<AuthenticatedSocket>>();
 let websocketServer: WebSocketServer | null = null;
+let heartbeatTimer: NodeJS.Timeout | null = null;
 
 function send(socket: WebSocket, payload: Record<string, unknown>): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -309,6 +313,48 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
     return;
   }
 
+  // Chat por solicitud (API-35). Sala distinta de requests:<id>: esa admite a técnicos que solo
+  // recibieron el aviso, y el chat debe ser únicamente de quien participa en la solicitud.
+  if (message.type === 'subscribe_chat') {
+    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_REQUEST_ID',
+        message: 'requestId no es válido.',
+      });
+      return;
+    }
+    const requestId = BigInt(message.requestId);
+    const allowed = await canAccessChat(socket.userId!, socket.role!, requestId);
+    if (!allowed) {
+      send(socket, {
+        type: 'error',
+        code: 'FORBIDDEN_ROOM',
+        message: 'No tienes acceso al chat de esta solicitud.',
+      });
+      return;
+    }
+    const room = `chats:${requestId}`;
+    joinRoom(socket, room);
+    send(socket, { type: 'subscribed', room });
+    return;
+  }
+
+  if (message.type === 'unsubscribe_chat') {
+    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_REQUEST_ID',
+        message: 'requestId no es válido.',
+      });
+      return;
+    }
+    const room = `chats:${message.requestId}`;
+    leaveRoom(socket, room);
+    send(socket, { type: 'unsubscribed', room });
+    return;
+  }
+
   if (message.type === 'ping') {
     send(socket, { type: 'pong', timestamp: new Date().toISOString() });
     return;
@@ -335,9 +381,27 @@ export function attachWebSocketServer(server: Server): WebSocketServer {
     });
   });
 
+  // Sin latido del servidor, un teléfono que pasa a segundo plano deja un socket "abierto" hasta
+  // que el TCP expira. Eso haría creer que la app sigue conectada y no se enviaría el push.
+  heartbeatTimer = setInterval(() => {
+    for (const socket of sockets) {
+      if (socket.isAlive === false) {
+        socket.terminate();
+        continue;
+      }
+      socket.isAlive = false;
+      socket.ping();
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+  heartbeatTimer.unref();
+
   websocketServer.on('connection', (websocket) => {
     const socket = websocket as AuthenticatedSocket;
     socket.rooms = new Set();
+    socket.isAlive = true;
+    socket.on('pong', () => {
+      socket.isAlive = true;
+    });
     sockets.add(socket);
     socket.authTimer = setTimeout(() => {
       if (!socket.authenticated) socket.close(1008, 'Tiempo de autenticación agotado');
@@ -377,6 +441,16 @@ export function publishRealtimeMessage(message: RealTimeMessage): void {
   }
 }
 
+/** Indica si el usuario tiene al menos un socket autenticado y abierto (app en primer plano). */
+export function hasActiveConnection(userId: string): boolean {
+  const members = rooms.get(`users:${userId}`);
+  if (!members) return false;
+  for (const socket of members) {
+    if (socket.authenticated && socket.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
+}
+
 export function getWebSocketStats() {
   return {
     connections: sockets.size,
@@ -387,6 +461,8 @@ export function getWebSocketStats() {
 
 export async function closeWebSocketServer(): Promise<void> {
   if (!websocketServer) return;
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
   for (const socket of sockets) socket.close(1001, 'Servidor apagándose');
   await new Promise<void>((resolve) => websocketServer!.close(() => resolve()));
   websocketServer = null;

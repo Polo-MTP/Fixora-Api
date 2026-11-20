@@ -13,6 +13,11 @@ import {
   rejectServiceRequestController,
   cancelServiceRequestController,
 } from '../controllers/service-request-status.controller.ts';
+import {
+  getChatController,
+  markChatReadController,
+  sendChatMessageController,
+} from '../controllers/chat.controller.ts';
 
 const router = Router();
 router.use(authenticateToken);
@@ -25,6 +30,10 @@ router.post('/:id/accept', acceptServiceRequestController);
 router.post('/:id/reject', rejectServiceRequestController);
 router.post('/:id/cancel', cancelServiceRequestController);
 router.post('/:id/status', changeServiceRequestStatus);
+// Chat por solicitud (API-35)
+router.get('/:id/chat', getChatController);
+router.post('/:id/chat/messages', sendChatMessageController);
+router.post('/:id/chat/read', markChatReadController);
 router.get('/:id', getOneServiceRequest);
 
 export default router;
