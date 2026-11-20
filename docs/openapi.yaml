@@ -2573,6 +2573,21 @@ paths:
           schema:
             type: boolean
             default: false
+        - in: query
+          name: min_rating
+          description: Calificación promedio mínima (0 a 5). Las sucursales sin reseñas cuentan como 0.
+          schema:
+            type: number
+            minimum: 0
+            maximum: 5
+        - in: query
+          name: max_price
+          description: >-
+            Precio base máximo. Con category_id se compara el precio de ese servicio; sin él, basta con
+            que la sucursal tenga algún servicio a ese precio o menos.
+          schema:
+            type: number
+            exclusiveMinimum: 0
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
