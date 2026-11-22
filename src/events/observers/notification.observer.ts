@@ -12,7 +12,15 @@ import {
   type SupplierApplicationCreatedPayload,
 } from '../events/domain-events.ts';
 import { db } from '../../config/database.ts';
-import { notifications, roles, users } from '../../database/schema/tables.ts';
+import {
+  branches,
+  business_supplier,
+  employees,
+  notifications,
+  roles,
+  suppliers,
+  users,
+} from '../../database/schema/tables.ts';
 import { fcmService } from '../../services/fcm.service.ts';
 
 export interface NotificationRecord {
@@ -22,7 +30,15 @@ export interface NotificationRecord {
   message: string;
   entityType?: string;
   entityId?: string;
+  /** Aviso de solicitud entrante al técnico: se manda como alarma (API-28). */
+  alarm?: boolean;
 }
+
+/** Quién del lado del proveedor recibe una solicitud nueva: el técnico asignado o la sucursal. */
+export type ProviderRecipientProvider = (target: {
+  employeeId: string | null;
+  branchId: string;
+}) => Promise<string[]>;
 
 export type NotificationPersister = (record: NotificationRecord) => Promise<void>;
 export type NotificationPushSender = (record: NotificationRecord) => Promise<void>;
@@ -33,17 +49,21 @@ export class NotificationObserver implements Observer<DomainEvent> {
   private readonly persister: NotificationPersister;
   private readonly pushSender: NotificationPushSender;
   private readonly administratorRecipientProvider: AdministratorRecipientProvider;
+  private readonly providerRecipientProvider: ProviderRecipientProvider;
   private readonly dispatchedRecords: NotificationRecord[] = [];
 
   constructor(
     customPersister?: NotificationPersister,
     customPushSender?: NotificationPushSender,
     customAdministratorRecipientProvider?: AdministratorRecipientProvider,
+    customProviderRecipientProvider?: ProviderRecipientProvider,
   ) {
     this.persister = customPersister ?? this.defaultDatabasePersister;
     this.pushSender = customPushSender ?? this.defaultPushSender;
     this.administratorRecipientProvider =
       customAdministratorRecipientProvider ?? this.defaultAdministratorRecipientProvider;
+    this.providerRecipientProvider =
+      customProviderRecipientProvider ?? this.defaultProviderRecipientProvider;
   }
 
   private async defaultDatabasePersister(record: NotificationRecord): Promise<void> {
@@ -62,11 +82,57 @@ export class NotificationObserver implements Observer<DomainEvent> {
     if (record.entityType) data.entity_type = record.entityType;
     if (record.entityId) data.entity_id = record.entityId;
 
+    if (record.alarm) {
+      await fcmService.sendIncomingRequestAlarm(record.userId, {
+        title: record.title,
+        body: record.message,
+        data,
+      });
+      return;
+    }
+
     await fcmService.sendToUser(record.userId, {
       title: record.title,
       body: record.message,
       data,
     });
+  }
+
+  /**
+   * Técnico asignado (si la solicitud ya trae uno) o, si no, el personal activo de la sucursal y
+   * el dueño del negocio: el que tenga la app abierta primero la atiende.
+   */
+  private async defaultProviderRecipientProvider(target: {
+    employeeId: string | null;
+    branchId: string;
+  }): Promise<string[]> {
+    if (target.employeeId) {
+      const [employee] = await db
+        .select({ userId: employees.user_id })
+        .from(employees)
+        .where(and(eq(employees.UniqueID, BigInt(target.employeeId)), eq(employees.active, true)))
+        .limit(1);
+      if (employee) return [employee.userId.toString()];
+    }
+
+    const branchId = BigInt(target.branchId);
+    const staff = await db
+      .select({ userId: employees.user_id })
+      .from(employees)
+      .where(and(eq(employees.branch_id, branchId), eq(employees.active, true)));
+    const owners = await db
+      .select({ userId: suppliers.user_id })
+      .from(branches)
+      .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+      .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+      .where(
+        and(
+          eq(branches.UniqueID, branchId),
+          eq(business_supplier.active, true),
+          eq(suppliers.active, true),
+        ),
+      );
+    return Array.from(new Set([...staff, ...owners].map((row) => row.userId.toString())));
   }
 
   private async defaultAdministratorRecipientProvider(): Promise<string[]> {
@@ -126,8 +192,14 @@ export class NotificationObserver implements Observer<DomainEvent> {
 
   private async handleServiceRequest(payload: ServiceRequestStatusChangedPayload): Promise<void> {
     const { requestId, fromStatus, toStatus, clientId, reason } = payload;
-    // La creación inicial (null -> pendiente) no es un cambio notificable al propio cliente.
-    if (fromStatus === null) return;
+    // La creación inicial (null -> pendiente) no se le notifica al propio cliente; a quien se le
+    // avisa es al proveedor, como alarma (API-28). La de emergencia avisa en el despacho.
+    if (fromStatus === null) {
+      if (toStatus === 'pendiente' && payload.branchId) {
+        await this.notifyIncomingRequest(requestId, payload.employeeId ?? null, payload.branchId);
+      }
+      return;
+    }
 
     let message = `El estado de tu solicitud cambió a "${toStatus}".`;
 
@@ -164,6 +236,27 @@ export class NotificationObserver implements Observer<DomainEvent> {
     });
   }
 
+  private async notifyIncomingRequest(
+    requestId: string,
+    employeeId: string | null,
+    branchId: string,
+  ): Promise<void> {
+    const recipients = await this.providerRecipientProvider({ employeeId, branchId });
+    await Promise.all(
+      recipients.map((userId) =>
+        this.dispatch({
+          userId,
+          type: 'nueva_solicitud',
+          title: 'Nueva solicitud de servicio',
+          message: `Un cliente te envió la solicitud #${requestId}. Revísala y responde a tiempo.`,
+          entityType: 'service_request',
+          entityId: requestId,
+          alarm: true,
+        }),
+      ),
+    );
+  }
+
   private async handleServiceRequestRejected(
     payload: ServiceRequestRejectedPayload,
   ): Promise<void> {
@@ -190,6 +283,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
           message: `Hay una solicitud de emergencia de ${payload.categoryName} a menos de ${payload.radiusKm} km.`,
           entityType: 'service_request',
           entityId: payload.requestId,
+          alarm: true,
         }),
       ),
     );

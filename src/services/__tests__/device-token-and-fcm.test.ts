@@ -307,6 +307,45 @@ describe('Integración con Firebase Cloud Messaging y tokens de dispositivo (API
       assert.equal(msg.data?.channel_id, 'safety_alarms');
     });
 
+    it('manda el aviso de solicitud entrante solo con datos y vida corta en Android (API-28)', async () => {
+      const fcm = new FcmService();
+      let capturedMessage: MulticastMessage | null = null;
+      fcm.setMessagingClient({
+        async sendEachForMulticast(message: MulticastMessage): Promise<BatchResponse> {
+          capturedMessage = message;
+          return {
+            successCount: message.tokens.length,
+            failureCount: 0,
+            responses: message.tokens.map(() => ({ success: true, messageId: 'mock' })),
+          };
+        },
+      });
+      await deviceTokenService.registerToken(testUserId, {
+        token: testToken1,
+        platform: 'android',
+      });
+
+      const result = await fcm.sendIncomingRequestAlarm(testUserId, {
+        title: 'Nueva solicitud de servicio',
+        body: 'Un cliente te envió la solicitud #7.',
+        data: { type: 'nueva_solicitud', entity_type: 'service_request', entity_id: '7' },
+      });
+
+      assert.equal(result.successCount, 1);
+      const msg = capturedMessage as unknown as MulticastMessage;
+      // Sin bloque notification: así la app arma la alarma aunque esté cerrada.
+      assert.equal(msg.notification, undefined);
+      assert.equal(msg.android?.notification, undefined);
+      assert.equal(msg.android?.priority, 'high');
+      assert.equal(msg.android?.ttl, 5 * 60 * 1000);
+      assert.equal(msg.data?.title, 'Nueva solicitud de servicio');
+      assert.equal(msg.data?.body, 'Un cliente te envió la solicitud #7.');
+      assert.equal(msg.data?.is_alarm, 'true');
+      assert.equal(msg.data?.channel_id, 'emergency_alarms');
+      assert.equal(msg.data?.entity_id, '7');
+      assert.equal(msg.apns?.headers?.['apns-priority'], '10');
+    });
+
     it('debe limpiar y desactivar tokens inválidos cuando FCM reporta que ya no están registrados', async () => {
       const fcm = new FcmService();
 
