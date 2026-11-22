@@ -5372,6 +5372,16 @@ components:
           type:
             - string
             - 'null'
+        dispatches:
+          type: object
+          description: >-
+            A cuántos técnicos se les avisó y cuántos la rechazaron. Rechazar no cambia el estado
+            (sigue pendiente hasta vencer); con esto el cliente se entera de inmediato.
+          properties:
+            sent:
+              type: integer
+            rejected:
+              type: integer
 
     StatusChange:
       type: object

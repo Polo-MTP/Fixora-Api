@@ -371,6 +371,17 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
         .limit(1)
     : [undefined];
 
+  // A cuántos técnicos se les avisó y cuántos la rechazaron (API-30). Al rechazar, la solicitud
+  // sigue «pendiente» hasta vencer; con esto el cliente se entera de inmediato.
+  const dispatchRows = await db
+    .select({ response: request_dispatches.response })
+    .from(request_dispatches)
+    .where(eq(request_dispatches.request_id, requestId));
+  const dispatches = {
+    sent: dispatchRows.length,
+    rejected: dispatchRows.filter((row) => row.response === 'rechazo').length,
+  };
+
   let technician: { employee_id: string; name: string; photo_url: string | null } | null = null;
   if (request.employee_id) {
     const [employee] = await db
@@ -457,6 +468,7 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     completed_at: request.completed_at,
     canceled_by: request.canceled_by,
     canceled_reason: request.canceled_reason,
+    dispatches,
   };
 }
 
