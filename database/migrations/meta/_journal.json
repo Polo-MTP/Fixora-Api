@@ -99,6 +99,13 @@
       "when": 1795330200000,
       "tag": "0013_api38_income_per_payment",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795330300000,
+      "tag": "0014_api35_request_chat",
+      "breakpoints": true
     }
   ]
 }

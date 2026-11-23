@@ -1,3 +1,4 @@
+
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventBus } from '../event-bus.ts';
@@ -24,6 +25,7 @@ describe('API-28: aviso de solicitud entrante al proveedor', () => {
     pushed = [];
     lookups = [];
     recipients = ['77', '88'];
+
     const observer = new NotificationObserver(
       async (record) => {
         persisted.push(record);
@@ -32,11 +34,13 @@ describe('API-28: aviso de solicitud entrante al proveedor', () => {
         pushed.push(record);
       },
       async () => [],
+      async () => false,
       async (target) => {
         lookups.push(target);
         return recipients;
       },
     );
+
     bus.register(DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED, observer);
     bus.register(DOMAIN_EVENTS.SERVICE_REQUEST_DISPATCHED, observer);
   });
@@ -63,12 +67,14 @@ describe('API-28: aviso de solicitud entrante al proveedor', () => {
       pushed.map((record) => record.userId),
       ['77', '88'],
     );
+
     for (const record of pushed) {
       assert.equal(record.type, 'nueva_solicitud');
       assert.equal(record.entityType, 'service_request');
       assert.equal(record.entityId, '15');
       assert.equal(record.alarm, true);
     }
+
     assert.equal(persisted.length, 2);
     assert.ok(!pushed.some((record) => record.userId === '303'));
   });

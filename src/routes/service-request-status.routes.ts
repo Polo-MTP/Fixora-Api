@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
+
 import {
   createServiceRequestController,
   createEmergencyServiceRequestController,
 } from '../controllers/service-request-creation.controller.ts';
+
 import {
   changeServiceRequestStatus,
   getOneServiceRequest,
@@ -14,42 +16,70 @@ import {
   cancelServiceRequestController,
   getRequestTrackingController,
 } from '../controllers/service-request-status.controller.ts';
+
+import {
+  getChatController,
+  markChatReadController,
+  sendChatMessageController,
+} from '../controllers/chat.controller.ts';
+
 import {
   approvePriceAdjustmentController,
   listPriceAdjustmentsController,
   proposePriceAdjustmentController,
   rejectPriceAdjustmentController,
 } from '../controllers/price-adjustment.controller.ts';
+
 import {
   confirmPaymentController,
   listRequestPaymentsController,
   registerPaymentController,
   rejectPaymentController,
+  sendDebtReminderController,
 } from '../controllers/payment.controller.ts';
 
 const router = Router();
+
 router.use(authenticateToken);
 
+// Solicitudes de servicio
 router.get('/', listMyServiceRequests);
 router.post('/emergency', createEmergencyServiceRequestController);
 router.post('/', createServiceRequestController);
+
+// Eventos y seguimiento
 router.get('/:id/events', listServiceRequestEvents);
 router.get('/:id/tracking', getRequestTrackingController);
+
+// Acciones de la solicitud
 router.post('/:id/accept', acceptServiceRequestController);
 router.post('/:id/reject', rejectServiceRequestController);
 router.post('/:id/cancel', cancelServiceRequestController);
-// Ajustes de precio (API-36): el técnico propone, el cliente aprueba o rechaza.
+
+// Ajustes de precio (API-36)
 router.get('/:id/price-adjustments', listPriceAdjustmentsController);
 router.post('/:id/price-adjustments', proposePriceAdjustmentController);
 router.post('/:id/price-adjustments/:adjustmentId/approve', approvePriceAdjustmentController);
 router.post('/:id/price-adjustments/:adjustmentId/reject', rejectPriceAdjustmentController);
-// Pagos (API-37): el cliente registra, el proveedor confirma o dice que no lo recibió.
+
+// Pagos (API-37)
 router.get('/:id/payments', listRequestPaymentsController);
 router.post('/:id/payments', registerPaymentController);
 router.post('/:id/payments/:paymentId/confirm', confirmPaymentController);
 router.post('/:id/payments/:paymentId/reject', rejectPaymentController);
+// El proveedor le recuerda al cliente un adeudo, máximo uno cada 24 horas (API-53).
+router.post('/:id/debt-reminders', sendDebtReminderController);
+
+// Cambio de estado
 router.post('/:id/status', changeServiceRequestStatus);
 router.patch('/:id/status', changeServiceRequestStatus);
+
+// Chat por solicitud (API-35)
+router.get('/:id/chat', getChatController);
+router.post('/:id/chat/messages', sendChatMessageController);
+router.post('/:id/chat/read', markChatReadController);
+
+// Obtener solicitud individual
 router.get('/:id', getOneServiceRequest);
 
 export default router;

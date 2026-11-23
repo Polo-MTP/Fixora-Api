@@ -14,7 +14,11 @@ import {
   NotFoundError,
 } from '../errors/app-error.ts';
 import { eventBus } from '../events/event-bus.ts';
-import { PaymentRegisteredEvent, PaymentRespondedEvent } from '../events/events/domain-events.ts';
+import {
+  DebtReminderEvent,
+  PaymentRegisteredEvent,
+  PaymentRespondedEvent,
+} from '../events/events/domain-events.ts';
 import {
   PAYMENT_METHODS,
   loadPayments,
@@ -26,6 +30,7 @@ import {
 import { centsToAmount, parseAmountToCents, type DbExecutor } from './price-adjustment.rules.ts';
 import { getAccessScope, getServiceRequest } from './service-request-status.service.ts';
 import { recordIncomeForPayment } from './income.rules.ts';
+import { nextReminderAllowedAt, reminderHistory } from './debt-reminder.service.ts';
 
 interface Actor {
   id: string;
@@ -360,6 +365,8 @@ export async function listMyDebts(actor: Actor) {
     .select()
     .from(service_payments)
     .where(inArray(service_payments.request_id, ids));
+  const reminders = await reminderHistory(ids);
+  const now = new Date();
   const debts = [];
   let totalDue = 0;
   for (const { request, category } of requests) {
@@ -370,12 +377,77 @@ export async function listMyDebts(actor: Actor) {
     );
     if (!summary.has_debt) continue;
     totalDue += parseAmountToCents(summary.balance_due) ?? 0;
+    const history = reminders.get(request.UniqueID.toString());
     debts.push({
       request_id: request.UniqueID.toString(),
       category,
       completed_at: request.completed_at,
       ...summary,
+      // Recordatorios (automáticos y manuales): el último y desde cuándo se puede mandar otro.
+      reminders_sent: history?.count ?? 0,
+      last_reminder_at: history?.last ?? null,
+      next_reminder_at: nextReminderAllowedAt(history?.last, now),
     });
   }
   return { total_due: centsToAmount(totalDue), debts };
+}
+
+/**
+ * El proveedor le recuerda al cliente un adeudo desde la app (API-53). Máximo uno cada 24 horas
+ * por servicio, contando también los automáticos, para que no se pueda usar para molestarlo; y no
+ * se manda si el cliente ya registró un pago que espera confirmación.
+ */
+export async function sendManualDebtReminder(requestId: bigint, actor: Actor) {
+  if (!PROVIDER_ROLES.includes(actor.role.trim().toLowerCase())) {
+    throw new ForbiddenError(
+      'Solo el proveedor puede recordarle un adeudo al cliente.',
+      'INSUFFICIENT_PERMISSIONS',
+    );
+  }
+  const scope = await getAccessScope(actor);
+  const [request] = await db
+    .select()
+    .from(service_requests)
+    .where(and(eq(service_requests.UniqueID, requestId), scope.condition))
+    .limit(1);
+  if (!request) throw new NotFoundError();
+
+  const summary = summarizePayments(
+    await totalToCharge(db, request),
+    await loadPayments(db, requestId),
+    request.status === 'completada',
+  );
+  if (!summary.has_debt) {
+    throw new ConflictError('Este servicio no tiene adeudo.', 'NO_DEBT');
+  }
+  if (summary.pending_confirmation !== '0.00') {
+    throw new ConflictError(
+      'El cliente ya registró un pago que espera tu confirmación.',
+      'PAYMENT_PENDING_CONFIRMATION',
+    );
+  }
+
+  const history = (await reminderHistory([requestId])).get(requestId.toString());
+  const next = nextReminderAllowedAt(history?.last);
+  if (next) {
+    throw new ConflictError(
+      `Ya se le recordó en las últimas 24 horas. Puedes volver a hacerlo a partir de ${next.toISOString()}.`,
+      'REMINDER_TOO_SOON',
+    );
+  }
+
+  await eventBus.notify(
+    new DebtReminderEvent({
+      requestId: requestId.toString(),
+      clientId: request.client_id.toString(),
+      balanceDue: summary.balance_due,
+    }),
+  );
+  const sentAt = new Date();
+  return {
+    request_id: requestId.toString(),
+    balance_due: summary.balance_due,
+    sent_at: sentAt,
+    next_reminder_at: nextReminderAllowedAt(sentAt, sentAt),
+  };
 }

@@ -63,6 +63,8 @@ tags:
     description: Búsqueda de proveedores cercanos para el mapa.
   - name: Solicitudes de servicio
     description: Creación, seguimiento y cambios de estado de una solicitud.
+  - name: Chat
+    description: Conversación entre cliente y técnico de una solicitud aceptada, y lectura para Soporte.
   - name: Pagos
     description: Registro y confirmación de pagos, historial y adeudos (API-37).
   - name: Administración
@@ -3630,6 +3632,61 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/service-requests/{id}/debt-reminders:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Pagos
+      summary: 'Recordarle un adeudo al cliente (proveedor)'
+      description: |
+        El técnico asignado, el dueño o el gerente de la sucursal le manda al cliente un recordatorio
+        de un servicio finalizado con saldo. Máximo uno cada 24 horas por servicio, contando también
+        los recordatorios automáticos. No se manda si el cliente ya registró un pago que espera
+        confirmación.
+      x-estado: implementado
+      x-ticket: API-53
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Recordatorio enviado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          request_id:
+                            type: string
+                          balance_due:
+                            $ref: '#/components/schemas/Money'
+                          sent_at:
+                            type: string
+                            format: date-time
+                          next_reminder_at:
+                            type: string
+                            format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            No hay adeudo (`NO_DEBT`), el cliente ya registró un pago por confirmar
+            (`PAYMENT_PENDING_CONFIRMATION`) o ya se le recordó en las últimas 24 horas
+            (`REMINDER_TOO_SOON`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/me/payments:
     get:
       tags:
@@ -3729,6 +3786,20 @@ paths:
                                         - 'null'
                                     completed_at:
                                       type: string
+                                      format: date-time
+                                    reminders_sent:
+                                      type: integer
+                                      description: Recordatorios mandados, automáticos y manuales.
+                                    last_reminder_at:
+                                      type:
+                                        - string
+                                        - 'null'
+                                      format: date-time
+                                    next_reminder_at:
+                                      description: Desde cuándo se puede mandar otro; null si ya se puede.
+                                      type:
+                                        - string
+                                        - 'null'
                                       format: date-time
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -3969,6 +4040,271 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/ServiceRequestEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/service-requests/{id}/chat:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Chat
+      summary: Conversación y mensajes de la solicitud
+      description: |
+        Disponible desde que un técnico acepta la solicitud. Pueden consultarla el cliente, el técnico
+        asignado, el gerente de la sucursal y el proveedor dueño de la sucursal. Un técnico al que solo
+        se le avisó de la solicitud no tiene acceso.
+
+        Sin parámetros devuelve los últimos mensajes en orden cronológico. Para cargar mensajes más
+        viejos usa `before` con el `next_before` de la respuesta. Después de una desconexión, `after`
+        con el id del último mensaje recibido devuelve los que faltan. `before` y `after` no se combinan.
+
+        Cuando la solicitud termina (completada, cancelada) el chat queda de solo lectura
+        (`can_send: false`). No marca mensajes como leídos: eso se hace con `POST .../chat/read`.
+      x-estado: implementado
+      x-ticket: API-35
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+        - in: query
+          name: before
+          schema:
+            type: string
+            pattern: '^[1-9]\d{0,17}$'
+          description: Devuelve mensajes con id menor a este.
+        - in: query
+          name: after
+          schema:
+            type: string
+            pattern: '^[1-9]\d{0,17}$'
+          description: Devuelve mensajes con id mayor a este, en orden cronológico.
+      responses:
+        '200':
+          description: Conversación y página de mensajes.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ChatPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La solicitud aún no tiene técnico o ya no tiene chat (`CHAT_NOT_AVAILABLE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/chat/messages:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Chat
+      summary: Enviar un mensaje
+      description: |
+        Texto, fotografías o ambos. Las fotografías se suben antes con `POST /api/files/upload` usando
+        `category=photos` y aquí se mandan sus llaves en `attachment_keys` (hasta 5, JPEG, PNG o WebP,
+        subidas por quien escribe).
+
+        `client_uuid` evita duplicados: si la app reintenta con el mismo valor, la API responde `200`
+        con el mensaje original en lugar de crear otro. El mensaje se entrega en tiempo real por el
+        WebSocket a la sala `chats:<id>`; si el destinatario no tiene la app conectada, recibe un push.
+      x-estado: implementado
+      x-ticket: API-35
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendChatMessageInput'
+            examples:
+              texto:
+                value:
+                  client_uuid: 3f2b8c1e-5a47-4d0b-9c1a-7e6f2d4b8a10
+                  message: Ya voy en camino, llego en 10 minutos.
+              respuestaConFoto:
+                value:
+                  client_uuid: 9a1d6b3c-2e58-4f7a-8b0d-1c4e5f6a7b8c
+                  message: Así está la fuga.
+                  reply_to_id: '15'
+                  attachment_keys:
+                    - photos/42/2026/11/fuga.jpg
+      responses:
+        '201':
+          description: Mensaje creado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ChatMessage'
+        '200':
+          description: El `client_uuid` ya existía; se devuelve el mensaje original.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ChatMessage'
+        '400':
+          description: Datos inválidos (`VALIDATION_ERROR`, `INVALID_REPLY_TARGET`, `INVALID_ATTACHMENT_TYPE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La fotografía no pertenece a quien escribe (`FILE_NOT_OWNED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El chat no está disponible (`CHAT_NOT_AVAILABLE`) o la solicitud terminó (`CHAT_CLOSED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/chat/read:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Chat
+      summary: Marcar mensajes como leídos
+      description: |
+        Marca como leídos los mensajes de la otra parte. Sin cuerpo marca todos; con `up_to_message_id`
+        marca hasta ese mensaje. Quien escribió cada mensaje recibe `chat_messages_read` por el WebSocket.
+      x-estado: implementado
+      x-ticket: API-35
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                up_to_message_id:
+                  type: string
+                  pattern: '^[1-9]\d{0,17}$'
+      responses:
+        '200':
+          description: Mensajes marcados.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          marked:
+                            type: integer
+                          message_ids:
+                            type: array
+                            items:
+                              type: string
+                          read_at:
+                            type:
+                              - string
+                              - 'null'
+                            format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El chat no está disponible (`CHAT_NOT_AVAILABLE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/reports/{reportId}/conversation:
+    parameters:
+      - in: path
+        name: reportId
+        required: true
+        schema:
+          type: string
+          pattern: '^[1-9]\d{0,17}$'
+    get:
+      tags:
+        - Chat
+      summary: Conversación de la solicitud de un reporte (Soporte)
+      description: |
+        Solo lectura para Soporte y Administrador. Devuelve la conversación de la solicitud ligada al
+        reporte, con la misma paginación que el chat. No permite escribir ni marca mensajes como leídos.
+        Si el reporte no tiene solicitud o la solicitud nunca tuvo chat, `conversation` es `null` y
+        `messages` va vacío.
+      x-estado: implementado
+      x-ticket: API-35
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+        - in: query
+          name: before
+          schema:
+            type: string
+        - in: query
+          name: after
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Conversación del reporte.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReportConversation'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -6388,6 +6724,179 @@ components:
         created_at:
           type: string
           format: date-time
+
+    SendChatMessageInput:
+      type: object
+      required:
+        - client_uuid
+      description: Debe incluir `message`, `attachment_keys` o ambos.
+      properties:
+        client_uuid:
+          type: string
+          format: uuid
+          description: Lo genera la app por mensaje; reintentar con el mismo valor no duplica.
+        message:
+          type: string
+          maxLength: 2000
+        reply_to_id:
+          type: string
+          description: Id de un mensaje de la misma conversación al que se responde.
+        attachment_keys:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+          description: Llaves de fotografías subidas con `category=photos`.
+
+    ChatAttachment:
+      type: object
+      properties:
+        id:
+          type: string
+        mime_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type:
+            - integer
+            - 'null'
+        url:
+          type:
+            - string
+            - 'null'
+          description: Enlace firmado con vigencia de 60 minutos.
+
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        conversation_id:
+          type: string
+        request_id:
+          type: string
+        sender_id:
+          type: string
+        sender_name:
+          type:
+            - string
+            - 'null'
+        sender_side:
+          type: string
+          enum: [cliente, proveedor]
+        message:
+          type:
+            - string
+            - 'null'
+        reply_to:
+          type:
+            - object
+            - 'null'
+          properties:
+            id:
+              type: string
+            sender_id:
+              type: string
+            message:
+              type:
+                - string
+                - 'null'
+            has_attachments:
+              type: boolean
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatAttachment'
+        client_uuid:
+          type:
+            - string
+            - 'null'
+        read_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    ChatPagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        has_more:
+          type: boolean
+        next_before:
+          type:
+            - string
+            - 'null'
+          description: Cursor para pedir mensajes más viejos (`before`).
+        next_after:
+          type:
+            - string
+            - 'null'
+          description: Cursor para pedir mensajes más nuevos (`after`).
+
+    ChatPage:
+      type: object
+      properties:
+        conversation:
+          type: object
+          properties:
+            id:
+              type: string
+            request_id:
+              type: string
+            status:
+              type: string
+              enum: [abierta, cerrada]
+            can_send:
+              type: boolean
+            unread_count:
+              type: integer
+              description: Mensajes de la otra parte que aún no se marcan como leídos.
+            created_at:
+              type: string
+              format: date-time
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        pagination:
+          $ref: '#/components/schemas/ChatPagination'
+
+    ReportConversation:
+      type: object
+      properties:
+        report_id:
+          type: string
+        request_id:
+          type:
+            - string
+            - 'null'
+        conversation:
+          type:
+            - object
+            - 'null'
+          properties:
+            id:
+              type: string
+            status:
+              type: string
+              enum: [abierta, cerrada]
+            read_only:
+              type: boolean
+              example: true
+            created_at:
+              type: string
+              format: date-time
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        pagination:
+          $ref: '#/components/schemas/ChatPagination'
 
   responses:
     InvalidInput:

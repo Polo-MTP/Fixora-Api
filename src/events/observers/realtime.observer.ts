@@ -13,6 +13,8 @@ import {
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
+  type ChatMessageSentPayload,
+  type ChatMessagesReadPayload,
 } from '../events/domain-events.ts';
 
 export interface RealTimeMessage {
@@ -21,6 +23,8 @@ export interface RealTimeMessage {
   data: unknown;
   timestamp: Date;
 }
+
+const MAX_RETAINED_MESSAGES = 500;
 
 export type RealTimePublisher = (message: RealTimeMessage) => Promise<void> | void;
 
@@ -220,13 +224,62 @@ export class RealTimeObserver implements Observer<DomainEvent> {
         break;
       }
 
+      case DOMAIN_EVENTS.CHAT_MESSAGE_SENT: {
+        const payload = event.payload as ChatMessageSentPayload;
+
+        // Sala del chat: quien lo tiene abierto recibe el mensaje completo.
+        await this.emitMessage({
+          channel: `chats:${payload.requestId}`,
+          event: 'chat_message',
+          data: payload.message,
+          timestamp,
+        });
+
+        // Sala personal del destinatario: contador de no leídos aunque no tenga el chat abierto.
+        for (const userId of payload.recipientUserIds) {
+          await this.emitMessage({
+            channel: `users:${userId}`,
+            event: 'chat_unread',
+            data: {
+              requestId: payload.requestId,
+              conversationId: payload.conversationId,
+              messageId: payload.messageId,
+              senderId: payload.senderId,
+              preview: payload.preview,
+            },
+            timestamp,
+          });
+        }
+        break;
+      }
+
+      case DOMAIN_EVENTS.CHAT_MESSAGES_READ: {
+        const payload = event.payload as ChatMessagesReadPayload;
+        await this.emitMessage({
+          channel: `chats:${payload.requestId}`,
+          event: 'chat_messages_read',
+          data: {
+            requestId: payload.requestId,
+            conversationId: payload.conversationId,
+            readerId: payload.readerId,
+            messageIds: payload.messageIds,
+            readAt: payload.readAt,
+          },
+          timestamp,
+        });
+        break;
+      }
+
       default:
         break;
     }
   }
 
   private async emitMessage(message: RealTimeMessage): Promise<void> {
+    // El historial en memoria existe para las pruebas; se acota para que el tráfico del chat
+    // no lo haga crecer sin límite en producción.
     this.publishedMessages.push(message);
+    if (this.publishedMessages.length > MAX_RETAINED_MESSAGES) this.publishedMessages.shift();
     await Promise.resolve(this.publisher(message));
   }
 

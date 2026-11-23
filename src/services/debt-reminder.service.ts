@@ -13,6 +13,49 @@ import {
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 export const DEBT_REMINDER_TYPE = 'recordatorio_adeudo';
 
+export interface ReminderHistory {
+  /** Recordatorios mandados: automáticos y manuales. */
+  count: number;
+  last: Date;
+}
+
+/**
+ * Cuántos recordatorios de adeudo se han mandado por solicitud y cuándo fue el último. Sale de las
+ * notificaciones guardadas, así que cuenta igual los automáticos y los que manda el proveedor.
+ */
+export async function reminderHistory(requestIds: bigint[]): Promise<Map<string, ReminderHistory>> {
+  const history = new Map<string, ReminderHistory>();
+  if (!requestIds.length) return history;
+  const rows = await db
+    .select({
+      requestId: notifications.entity_id,
+      count: sql<number>`count(*)::int`,
+      // Con el mismo conversor de la columna: la fecha se guarda en UTC sin zona horaria.
+      last: sql<Date>`max(${notifications.created_at})`.mapWith(notifications.created_at),
+    })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.type, DEBT_REMINDER_TYPE),
+        eq(notifications.entity_type, 'service_request'),
+        inArray(notifications.entity_id, requestIds),
+      ),
+    )
+    .groupBy(notifications.entity_id);
+  for (const row of rows) {
+    if (row.requestId === null) continue;
+    history.set(row.requestId.toString(), { count: Number(row.count), last: row.last });
+  }
+  return history;
+}
+
+/** Cuándo se puede mandar el siguiente recordatorio; null si ya se puede. */
+export function nextReminderAllowedAt(last: Date | undefined, now = new Date()): Date | null {
+  if (!last) return null;
+  const next = new Date(last.getTime() + DEBT_REMINDER_EVERY_MS);
+  return next.getTime() > now.getTime() ? next : null;
+}
+
 /**
  * Manda los recordatorios de adeudo que tocan: a un día de finalizado el servicio, y después uno
  * al día hasta MAX_DEBT_REMINDERS. Las propias notificaciones guardadas dicen cuántos se mandaron
@@ -40,21 +83,7 @@ export async function sendDueDebtReminders(now = new Date()): Promise<number> {
     .select()
     .from(service_payments)
     .where(inArray(service_payments.request_id, ids));
-  const sent = await db
-    .select({
-      requestId: notifications.entity_id,
-      count: sql<number>`count(*)::int`,
-      last: sql<Date>`max(${notifications.created_at})`,
-    })
-    .from(notifications)
-    .where(
-      and(
-        eq(notifications.type, DEBT_REMINDER_TYPE),
-        eq(notifications.entity_type, 'service_request'),
-        inArray(notifications.entity_id, ids),
-      ),
-    )
-    .groupBy(notifications.entity_id);
+  const sent = await reminderHistory(ids);
 
   let count = 0;
   for (const request of candidates) {
@@ -66,11 +95,9 @@ export async function sendDueDebtReminders(now = new Date()): Promise<number> {
     // Con un pago esperando confirmación no se le insiste: ya hizo su parte.
     if (!summary.has_debt || summary.pending_confirmation !== '0.00') continue;
 
-    const history = sent.find((row) => row.requestId === request.UniqueID);
-    if (history && Number(history.count) >= MAX_DEBT_REMINDERS) continue;
-    if (history && now.getTime() - new Date(history.last).getTime() < DEBT_REMINDER_EVERY_MS) {
-      continue;
-    }
+    const history = sent.get(request.UniqueID.toString());
+    if (history && history.count >= MAX_DEBT_REMINDERS) continue;
+    if (nextReminderAllowedAt(history?.last, now)) continue;
 
     await eventBus.notify(
       new DebtReminderEvent({

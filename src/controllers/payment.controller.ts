@@ -6,6 +6,7 @@ import {
   listRequestPayments,
   registerPayment,
   respondPayment,
+  sendManualDebtReminder,
 } from '../services/payment.service.ts';
 
 function parseId(value: unknown, label: string): bigint {
@@ -105,6 +106,20 @@ export async function listMyDebtsController(req: Request, res: Response, next: N
     return res
       .status(200)
       .json({ success: true, message: 'Operación realizada correctamente.', data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function sendDebtReminderController(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await sendManualDebtReminder(
+      parseId(req.params.id, 'solicitud'),
+      actorFromRequest(req),
+    );
+    return res
+      .status(201)
+      .json({ success: true, message: 'Recordatorio enviado al cliente.', data });
   } catch (error) {
     return next(error);
   }
