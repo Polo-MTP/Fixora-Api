@@ -85,6 +85,13 @@
       "when": 1795330000000,
       "tag": "0011_api36_price_adjustment_details",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795330100000,
+      "tag": "0012_api37_service_payments_confirmation",
+      "breakpoints": true
     }
   ]
 }

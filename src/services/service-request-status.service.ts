@@ -39,6 +39,12 @@ import {
   serializePriceAdjustment,
   type DbExecutor,
 } from './price-adjustment.rules.ts';
+import {
+  loadPayments,
+  serializePayment,
+  summarizePayments,
+  totalToCharge,
+} from './payment.rules.ts';
 
 export const PUBLIC_STATUSES = [
   'pendiente',
@@ -193,7 +199,8 @@ function validateStatusChange(input: unknown): StatusChangeInput {
   };
 }
 
-async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
+/** Qué solicitudes ve la cuenta según su rol; también la usa el historial de pagos (API-37). */
+export async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
   const actorId = BigInt(actor.id);
   const role = actor.role.trim().toLowerCase();
 
@@ -415,6 +422,12 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
   }
 
   const priceAdjustments = await loadPriceAdjustments(db, requestId);
+  const payments = await loadPayments(db, requestId);
+  const paymentSummary = summarizePayments(
+    await totalToCharge(db, request),
+    payments,
+    request.status === 'completada',
+  );
   const attachments = await db
     .select()
     .from(request_attachments)
@@ -464,6 +477,9 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     /** Precio acordado más los ajustes aprobados; se fija al finalizar (API-36). */
     total_amount: request.total_amount,
     price_adjustments: priceAdjustments.map(serializePriceAdjustment),
+    /** Cuánto se ha pagado y cuánto falta (API-37); con saldo y finalizada es un adeudo. */
+    payment_summary: paymentSummary,
+    payments: payments.map(serializePayment),
     attachments: attachments.map((attachment) => ({
       file_key: attachment.file_key,
       mime_type: attachment.mime_type,

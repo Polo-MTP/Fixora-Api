@@ -53,10 +53,15 @@ export function setupDomainEventObservers(
   for (const eventType of [
     DOMAIN_EVENTS.PRICE_ADJUSTMENT_PROPOSED,
     DOMAIN_EVENTS.PRICE_ADJUSTMENT_RESPONDED,
+    DOMAIN_EVENTS.PAYMENT_REGISTERED,
+    DOMAIN_EVENTS.PAYMENT_RESPONDED,
   ]) {
     bus.register(eventType, notificationObserver);
     bus.register(eventType, realtimeObserver);
   }
+
+  // El recordatorio de adeudo solo se le avisa al cliente.
+  bus.register(DOMAIN_EVENTS.DEBT_REMINDER, notificationObserver);
 
   bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, notificationObserver);
   bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, realtimeObserver);

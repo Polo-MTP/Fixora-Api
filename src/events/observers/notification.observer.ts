@@ -8,6 +8,9 @@ import {
   type ServiceRequestRejectedPayload,
   type PriceAdjustmentProposedPayload,
   type PriceAdjustmentRespondedPayload,
+  type PaymentRegisteredPayload,
+  type PaymentRespondedPayload,
+  type DebtReminderPayload,
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
@@ -177,6 +180,15 @@ export class NotificationObserver implements Observer<DomainEvent> {
       case DOMAIN_EVENTS.PRICE_ADJUSTMENT_RESPONDED:
         await this.handlePriceAdjustmentResponded(event.payload as PriceAdjustmentRespondedPayload);
         break;
+      case DOMAIN_EVENTS.PAYMENT_REGISTERED:
+        await this.handlePaymentRegistered(event.payload as PaymentRegisteredPayload);
+        break;
+      case DOMAIN_EVENTS.PAYMENT_RESPONDED:
+        await this.handlePaymentResponded(event.payload as PaymentRespondedPayload);
+        break;
+      case DOMAIN_EVENTS.DEBT_REMINDER:
+        await this.handleDebtReminder(event.payload as DebtReminderPayload);
+        break;
       case DOMAIN_EVENTS.REPORT_STATUS_CHANGED:
         await this.handleReport(event.payload as ReportStatusChangedPayload);
         break;
@@ -310,6 +322,55 @@ export class NotificationObserver implements Observer<DomainEvent> {
         }),
       ),
     );
+  }
+
+  /** El proveedor debe confirmar que recibió el pago (API-37). */
+  private async handlePaymentRegistered(payload: PaymentRegisteredPayload): Promise<void> {
+    const method = payload.method === 'transferencia' ? 'por transferencia' : 'en efectivo';
+    await Promise.all(
+      payload.providerUserIds.map((userId) =>
+        this.dispatch({
+          userId,
+          type: 'pago_registrado',
+          title: 'Confirma el pago del cliente',
+          message: `El cliente registró un pago de $${payload.amount} ${method} por la solicitud #${payload.requestId}. Confirma si lo recibiste.`,
+          entityType: 'service_request',
+          entityId: payload.requestId,
+        }),
+      ),
+    );
+  }
+
+  private async handlePaymentResponded(payload: PaymentRespondedPayload): Promise<void> {
+    const confirmed = payload.decision === 'completado';
+    const pending = payload.balanceDue !== '0.00';
+    let message: string;
+    if (confirmed) {
+      message = pending
+        ? `El proveedor confirmó tu pago de $${payload.amount}. Aún quedan $${payload.balanceDue} por pagar.`
+        : `El proveedor confirmó tu pago de $${payload.amount}. Tu servicio #${payload.requestId} quedó pagado.`;
+    } else {
+      message = `El proveedor no recibió tu pago de $${payload.amount}${payload.reason ? `: ${payload.reason}` : '.'} Revisa el pago y regístralo de nuevo.`;
+    }
+    await this.dispatch({
+      userId: payload.clientId,
+      type: confirmed ? 'pago_confirmado' : 'pago_rechazado',
+      title: confirmed ? 'Pago confirmado' : 'El proveedor no recibió tu pago',
+      message,
+      entityType: 'service_request',
+      entityId: payload.requestId,
+    });
+  }
+
+  private async handleDebtReminder(payload: DebtReminderPayload): Promise<void> {
+    await this.dispatch({
+      userId: payload.clientId,
+      type: 'recordatorio_adeudo',
+      title: 'Tienes un pago pendiente',
+      message: `Tu servicio #${payload.requestId} tiene $${payload.balanceDue} por pagar. Registra el pago cuando lo hagas.`,
+      entityType: 'service_request',
+      entityId: payload.requestId,
+    });
   }
 
   private async handleServiceRequestDispatched(

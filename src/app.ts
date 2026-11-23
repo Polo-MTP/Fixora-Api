@@ -31,6 +31,7 @@ import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
 import { attachWebSocketServer } from './realtime/websocket.server.ts';
 import { serviceRequestExpirationService } from './services/service-request-expiration.service.ts';
+import { debtReminderService } from './services/debt-reminder.service.ts';
 
 // Inicializar observadores del patrón Observer (Módulos 1 y 5)
 setupDomainEventObservers();
@@ -118,6 +119,7 @@ async function startServer() {
     void serviceRequestExpirationService.start().catch((error) => {
       console.error('No se pudo iniciar el worker de expiración:', error);
     });
+    debtReminderService.start();
 
     httpServer.listen(port, () => {
       console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);

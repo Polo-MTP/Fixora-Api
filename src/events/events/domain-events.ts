@@ -7,6 +7,9 @@ export const DOMAIN_EVENTS = {
   SERVICE_REQUEST_REJECTED: 'service_request.rejected',
   PRICE_ADJUSTMENT_PROPOSED: 'price_adjustment.proposed',
   PRICE_ADJUSTMENT_RESPONDED: 'price_adjustment.responded',
+  PAYMENT_REGISTERED: 'payment.registered',
+  PAYMENT_RESPONDED: 'payment.responded',
+  DEBT_REMINDER: 'payment.debt_reminder',
   REPORT_STATUS_CHANGED: 'report.status_changed',
   SUPPLIER_VERIFICATION_CHANGED: 'supplier.verification_changed',
   SUPPLIER_APPLICATION_RESOLVED: 'supplier.application_resolved',
@@ -148,6 +151,62 @@ export class PriceAdjustmentRespondedEvent extends BaseDomainEvent<PriceAdjustme
       eventId,
       occurredOn,
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 1.3 Pagos y adeudos (API-37)
+// ---------------------------------------------------------------------------
+
+export interface PaymentRegisteredPayload {
+  requestId: string;
+  paymentId: string;
+  clientId: string;
+  employeeId: string | null;
+  /** Del lado del proveedor: quién debe confirmar que lo recibió. */
+  providerUserIds: string[];
+  amount: string;
+  method: string;
+}
+
+/** El cliente dice que pagó; el proveedor debe confirmar que lo recibió. */
+export class PaymentRegisteredEvent extends BaseDomainEvent<PaymentRegisteredPayload> {
+  constructor(payload: PaymentRegisteredPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.PAYMENT_REGISTERED, payload.requestId, payload, eventId, occurredOn);
+  }
+}
+
+export interface PaymentRespondedPayload {
+  requestId: string;
+  paymentId: string;
+  clientId: string;
+  employeeId: string | null;
+  branchId: string | null;
+  amount: string;
+  method: string;
+  decision: 'completado' | 'fallido';
+  reason: string | null;
+  /** Lo que falta por pagar después de responder. */
+  balanceDue: string;
+}
+
+/** El proveedor confirmó que recibió el pago, o dijo que no le llegó. */
+export class PaymentRespondedEvent extends BaseDomainEvent<PaymentRespondedPayload> {
+  constructor(payload: PaymentRespondedPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.PAYMENT_RESPONDED, payload.requestId, payload, eventId, occurredOn);
+  }
+}
+
+export interface DebtReminderPayload {
+  requestId: string;
+  clientId: string;
+  balanceDue: string;
+}
+
+/** Recordatorio diario al cliente de un servicio terminado que no ha pagado. */
+export class DebtReminderEvent extends BaseDomainEvent<DebtReminderPayload> {
+  constructor(payload: DebtReminderPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.DEBT_REMINDER, payload.requestId, payload, eventId, occurredOn);
   }
 }
 

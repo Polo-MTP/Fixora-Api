@@ -55,6 +55,11 @@ export function parseReason(value: unknown): PriceAdjustmentReason {
   return value as PriceAdjustmentReason;
 }
 
+/** Aprobado por el cliente, o ya pagado junto con el servicio (API-37): suma al total. */
+export function countsTowardTotal(status: string): boolean {
+  return status === 'aprobado' || status === 'pagado';
+}
+
 export async function loadPriceAdjustments(executor: DbExecutor, requestId: bigint) {
   return executor
     .select()
@@ -94,6 +99,6 @@ export async function closePriceForCompletion(
   }
   return computeTotalAmount(
     agreedPrice,
-    rows.filter((row) => row.status === 'aprobado').map((row) => row.amount),
+    rows.filter((row) => countsTowardTotal(row.status)).map((row) => row.amount),
   );
 }

@@ -16,6 +16,7 @@ import {
   MAX_ADJUSTMENT_AMOUNT_CENTS,
   centsToAmount,
   computeTotalAmount,
+  countsTowardTotal,
   loadPriceAdjustments,
   parseAmountToCents,
   parseReason,
@@ -102,7 +103,7 @@ export async function listPriceAdjustments(requestId: bigint, actor: Actor) {
   // getServiceRequest revisa el acceso y ya trae los ajustes serializados.
   const request = await getServiceRequest(requestId, actor);
   const approved = request.price_adjustments
-    .filter((item) => item.status === 'aprobado')
+    .filter((item) => countsTowardTotal(item.status))
     .map((item) => item.amount);
   return {
     agreed_price: request.agreed_price,
@@ -278,7 +279,7 @@ export async function respondPriceAdjustment(
     adjustment: serializePriceAdjustment(result.updated),
     total_amount: computeTotalAmount(
       result.request.agreed_price,
-      all.filter((row) => row.status === 'aprobado').map((row) => row.amount),
+      all.filter((row) => countsTowardTotal(row.status)).map((row) => row.amount),
     ),
   };
 }
