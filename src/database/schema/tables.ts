@@ -452,6 +452,12 @@ export const price_adjustment = pgTable('price_adjustment', {
     .notNull()
     .references(() => users.UniqueID),
   paid_at: timestamp('paid_at'),
+  /** Detalle del motivo que escribe el técnico (API-36). */
+  description: varchar('description', { length: 500 }),
+  created_at: timestamp('created_at').notNull().defaultNow(),
+  /** Cuándo el cliente lo aprobó o rechazó. */
+  responded_at: timestamp('responded_at'),
+  client_uuid: varchar('client_uuid', { length: 100 }),
 });
 
 export const service_payments = pgTable('service_payments', {

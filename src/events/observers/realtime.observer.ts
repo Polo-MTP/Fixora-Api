@@ -6,6 +6,8 @@ import {
   type ServiceRequestStatusChangedPayload,
   type ServiceRequestDispatchedPayload,
   type ServiceRequestRejectedPayload,
+  type PriceAdjustmentProposedPayload,
+  type PriceAdjustmentRespondedPayload,
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
@@ -83,6 +85,29 @@ export class RealTimeObserver implements Observer<DomainEvent> {
             channel: `technicians:${employeeId}`,
             event: 'service_request_rejection_recorded',
             data: { requestId: payload.requestId, isEmergency: payload.isEmergency },
+            timestamp,
+          });
+        }
+        break;
+      }
+
+      // Ajustes de precio (API-36): la pantalla del cliente y la del técnico se actualizan solas.
+      case DOMAIN_EVENTS.PRICE_ADJUSTMENT_PROPOSED:
+      case DOMAIN_EVENTS.PRICE_ADJUSTMENT_RESPONDED: {
+        const payload = event.payload as
+          PriceAdjustmentProposedPayload | PriceAdjustmentRespondedPayload;
+        const channels = [`requests:${payload.requestId}`, `users:${payload.clientId}`];
+        if (payload.employeeId) channels.push(`technicians:${payload.employeeId}`);
+        for (const channel of channels) {
+          await this.emitMessage({
+            channel,
+            event: 'price_adjustment_updated',
+            data: {
+              requestId: payload.requestId,
+              adjustmentId: payload.adjustmentId,
+              amount: payload.amount,
+              status: 'decision' in payload ? payload.decision : 'pendiente',
+            },
             timestamp,
           });
         }

@@ -3062,6 +3062,9 @@ paths:
         Transiciones permitidas: `aceptada`/`agendada` → `en_camino` → `llegado` → `completada`.
         Guarda la ubicación del técnico como punto clave en el historial. Emite el evento del
         cambio de estado.
+
+        Al pasar a `completada` fija `total_amount` = `agreed_price` + ajustes de precio aprobados
+        (API-36). No se puede finalizar mientras un ajuste espera la respuesta del cliente.
       x-estado: implementado
       x-ticket: API-26
       security:
@@ -3093,7 +3096,9 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: La transición no está permitida desde el estado actual (`INVALID_STATUS_TRANSITION`).
+          description: |
+            La transición no está permitida desde el estado actual (`INVALID_STATUS_TRANSITION`),
+            o se intenta finalizar con un ajuste de precio sin responder (`PRICE_ADJUSTMENT_PENDING`).
           content:
             application/json:
               schema:
@@ -3105,7 +3110,7 @@ paths:
     post:
       tags:
         - Solicitudes de servicio
-      summary: Cancelar una solicitud 
+      summary: Cancelar una solicitud
       description: |
         El cliente puede cancelar una solicitud pendiente sin motivo. Después de la aceptación,
         tanto el cliente como el proveedor deben indicar un motivo. El proveedor o técnico asignado
@@ -3163,6 +3168,228 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           description: La transición no está permitida desde el estado actual (`INVALID_STATUS_TRANSITION`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/price-adjustments:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Ajustes de precio de una solicitud'
+      description: |
+        Lista los ajustes que propuso el técnico y el total que llevan. La ve quien puede ver la
+        solicitud: el cliente, el técnico asignado y el proveedor o gerente de la sucursal.
+
+        Precio de emergencia: no lleva recargo. Se cobra el precio base de la sucursal que la acepta
+        (`agreed_price`) y lo extra solo entra como un ajuste que el cliente aprueba.
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ajustes y total.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          agreed_price:
+                            oneOf:
+                              - $ref: '#/components/schemas/Money'
+                              - type: 'null'
+                          approved_total:
+                            $ref: '#/components/schemas/Money'
+                          total_amount:
+                            $ref: '#/components/schemas/Money'
+                          adjustments:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/PriceAdjustment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Proponer un ajuste de precio (técnico)'
+      description: |
+        El técnico asignado propone cobrar un monto extra cuando ya llegó al domicilio (`llegado`).
+        Queda `pendiente` hasta que el cliente lo aprueba o rechaza; solo puede haber uno pendiente.
+        Con el mismo `client_uuid` un reintento regresa el ajuste ya creado (200) en vez de
+        duplicarlo. Avisa al cliente por push, centro de notificaciones y tiempo real
+        (`price_adjustment_updated`).
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                amount:
+                  description: Monto extra, mayor a 0 y hasta 50000.00, con máximo 2 decimales.
+                  oneOf:
+                    - type: number
+                    - type: string
+                reason:
+                  type: string
+                  enum: [materiales_extra, tiempo_adicional, otro]
+                description:
+                  type: string
+                  maxLength: 500
+                  description: Obligatoria cuando `reason` es `otro`.
+                client_uuid:
+                  type: string
+                  maxLength: 100
+              required:
+                - amount
+                - reason
+      responses:
+        '201':
+          description: Ajuste creado y pendiente de respuesta.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PriceAdjustment'
+        '200':
+          description: Reintento con el mismo `client_uuid`; regresa el ajuste existente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PriceAdjustment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            La solicitud no está en `llegado` (`INVALID_REQUEST_STATUS`) o ya hay un ajuste
+            esperando respuesta (`PRICE_ADJUSTMENT_PENDING`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/price-adjustments/{adjustmentId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: adjustmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Aprobar un ajuste de precio (cliente)'
+      description: |
+        Solo el cliente de la solicitud, mientras está en `llegado`. El monto se suma al total que
+        se fija al finalizar. Avisa al técnico.
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ajuste aprobado, con el total actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          adjustment:
+                            $ref: '#/components/schemas/PriceAdjustment'
+                          total_amount:
+                            $ref: '#/components/schemas/Money'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            El ajuste ya fue respondido (`PRICE_ADJUSTMENT_ALREADY_RESPONDED`) o la solicitud ya no
+            admite cambios de precio (`INVALID_REQUEST_STATUS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/price-adjustments/{adjustmentId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: adjustmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Rechazar un ajuste de precio (cliente)'
+      description: Igual que aprobar, pero el monto no se suma. Avisa al técnico.
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ajuste rechazado, con el total sin ese monto.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          adjustment:
+                            $ref: '#/components/schemas/PriceAdjustment'
+                          total_amount:
+                            $ref: '#/components/schemas/Money'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El ajuste ya fue respondido o la solicitud ya no admite cambios de precio.
           content:
             application/json:
               schema:
@@ -5247,6 +5474,34 @@ components:
           type: string
           maxLength: 500
 
+    PriceAdjustment:
+      type: object
+      description: Monto extra que propone el técnico y el cliente aprueba o rechaza (API-36).
+      properties:
+        id:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        reason:
+          type: string
+          enum: [materiales_extra, tiempo_adicional, otro]
+        description:
+          type:
+            - string
+            - 'null'
+        status:
+          type: string
+          enum: [pendiente, aprobado, rechazado, pagado]
+        declared_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        responded_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
     ServiceRequest:
       type: object
       properties:
@@ -5326,6 +5581,15 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
+        total_amount:
+          description: Precio acordado más ajustes aprobados; se fija al finalizar (API-36).
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        price_adjustments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceAdjustment'
         attachments:
           type: array
           items:

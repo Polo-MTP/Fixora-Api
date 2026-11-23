@@ -49,6 +49,15 @@ export function setupDomainEventObservers(
     bus.register(eventType, realtimeObserver);
   }
 
+  // Ajustes de precio (API-36): avisos y tiempo real; no son cambios de estado de la solicitud.
+  for (const eventType of [
+    DOMAIN_EVENTS.PRICE_ADJUSTMENT_PROPOSED,
+    DOMAIN_EVENTS.PRICE_ADJUSTMENT_RESPONDED,
+  ]) {
+    bus.register(eventType, notificationObserver);
+    bus.register(eventType, realtimeObserver);
+  }
+
   bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, notificationObserver);
   bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, realtimeObserver);
   bus.register(DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED, emailObserver);

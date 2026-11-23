@@ -5,6 +5,8 @@ export const DOMAIN_EVENTS = {
   SERVICE_REQUEST_STATUS_CHANGED: 'service_request.status_changed',
   SERVICE_REQUEST_DISPATCHED: 'service_request.dispatched',
   SERVICE_REQUEST_REJECTED: 'service_request.rejected',
+  PRICE_ADJUSTMENT_PROPOSED: 'price_adjustment.proposed',
+  PRICE_ADJUSTMENT_RESPONDED: 'price_adjustment.responded',
   REPORT_STATUS_CHANGED: 'report.status_changed',
   SUPPLIER_VERIFICATION_CHANGED: 'supplier.verification_changed',
   SUPPLIER_APPLICATION_RESOLVED: 'supplier.application_resolved',
@@ -102,6 +104,50 @@ export interface ServiceRequestRejectedPayload {
 export class ServiceRequestRejectedEvent extends BaseDomainEvent<ServiceRequestRejectedPayload> {
   constructor(payload: ServiceRequestRejectedPayload, eventId?: string, occurredOn?: Date) {
     super(DOMAIN_EVENTS.SERVICE_REQUEST_REJECTED, payload.requestId, payload, eventId, occurredOn);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 1.2 Ajustes de precio (API-36)
+// ---------------------------------------------------------------------------
+
+export interface PriceAdjustmentProposedPayload {
+  requestId: string;
+  adjustmentId: string;
+  clientId: string;
+  employeeId: string | null;
+  amount: string;
+  reason: string;
+  description: string | null;
+}
+
+/** El técnico propone cobrar más; el cliente debe aprobarlo o rechazarlo. */
+export class PriceAdjustmentProposedEvent extends BaseDomainEvent<PriceAdjustmentProposedPayload> {
+  constructor(payload: PriceAdjustmentProposedPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.PRICE_ADJUSTMENT_PROPOSED, payload.requestId, payload, eventId, occurredOn);
+  }
+}
+
+export interface PriceAdjustmentRespondedPayload {
+  requestId: string;
+  adjustmentId: string;
+  clientId: string;
+  employeeId: string | null;
+  /** Cuentas a las que se avisa: el técnico asignado. */
+  technicianUserIds: string[];
+  amount: string;
+  decision: 'aprobado' | 'rechazado';
+}
+
+export class PriceAdjustmentRespondedEvent extends BaseDomainEvent<PriceAdjustmentRespondedPayload> {
+  constructor(payload: PriceAdjustmentRespondedPayload, eventId?: string, occurredOn?: Date) {
+    super(
+      DOMAIN_EVENTS.PRICE_ADJUSTMENT_RESPONDED,
+      payload.requestId,
+      payload,
+      eventId,
+      occurredOn,
+    );
   }
 }
 

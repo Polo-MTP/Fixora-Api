@@ -6,6 +6,8 @@ import {
   type ServiceRequestStatusChangedPayload,
   type ServiceRequestDispatchedPayload,
   type ServiceRequestRejectedPayload,
+  type PriceAdjustmentProposedPayload,
+  type PriceAdjustmentRespondedPayload,
   type ReportStatusChangedPayload,
   type SupplierVerificationPayload,
   type SupplierApplicationResolvedPayload,
@@ -169,6 +171,12 @@ export class NotificationObserver implements Observer<DomainEvent> {
       case DOMAIN_EVENTS.SERVICE_REQUEST_REJECTED:
         await this.handleServiceRequestRejected(event.payload as ServiceRequestRejectedPayload);
         break;
+      case DOMAIN_EVENTS.PRICE_ADJUSTMENT_PROPOSED:
+        await this.handlePriceAdjustmentProposed(event.payload as PriceAdjustmentProposedPayload);
+        break;
+      case DOMAIN_EVENTS.PRICE_ADJUSTMENT_RESPONDED:
+        await this.handlePriceAdjustmentResponded(event.payload as PriceAdjustmentRespondedPayload);
+        break;
       case DOMAIN_EVENTS.REPORT_STATUS_CHANGED:
         await this.handleReport(event.payload as ReportStatusChangedPayload);
         break;
@@ -269,6 +277,39 @@ export class NotificationObserver implements Observer<DomainEvent> {
       entityType: 'service_request',
       entityId: payload.requestId,
     });
+  }
+
+  /** El cliente debe aprobar o rechazar lo que el técnico quiere cobrar de más (API-36). */
+  private async handlePriceAdjustmentProposed(
+    payload: PriceAdjustmentProposedPayload,
+  ): Promise<void> {
+    const detail = payload.description ? `: ${payload.description}` : '.';
+    await this.dispatch({
+      userId: payload.clientId,
+      type: 'ajuste_precio_propuesto',
+      title: 'El técnico propone un ajuste de precio',
+      message: `Se agregarían $${payload.amount} a tu servicio #${payload.requestId}${detail} Apruébalo o recházalo.`,
+      entityType: 'service_request',
+      entityId: payload.requestId,
+    });
+  }
+
+  private async handlePriceAdjustmentResponded(
+    payload: PriceAdjustmentRespondedPayload,
+  ): Promise<void> {
+    const approved = payload.decision === 'aprobado';
+    await Promise.all(
+      payload.technicianUserIds.map((userId) =>
+        this.dispatch({
+          userId,
+          type: approved ? 'ajuste_precio_aprobado' : 'ajuste_precio_rechazado',
+          title: approved ? 'El cliente aprobó el ajuste' : 'El cliente rechazó el ajuste',
+          message: `El ajuste de $${payload.amount} de la solicitud #${payload.requestId} fue ${payload.decision}.`,
+          entityType: 'service_request',
+          entityId: payload.requestId,
+        }),
+      ),
+    );
   }
 
   private async handleServiceRequestDispatched(
