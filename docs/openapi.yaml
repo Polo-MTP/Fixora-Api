@@ -3632,6 +3632,61 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/service-requests/{id}/debt-reminders:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Pagos
+      summary: 'Recordarle un adeudo al cliente (proveedor)'
+      description: |
+        El técnico asignado, el dueño o el gerente de la sucursal le manda al cliente un recordatorio
+        de un servicio finalizado con saldo. Máximo uno cada 24 horas por servicio, contando también
+        los recordatorios automáticos. No se manda si el cliente ya registró un pago que espera
+        confirmación.
+      x-estado: implementado
+      x-ticket: API-53
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Recordatorio enviado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          request_id:
+                            type: string
+                          balance_due:
+                            $ref: '#/components/schemas/Money'
+                          sent_at:
+                            type: string
+                            format: date-time
+                          next_reminder_at:
+                            type: string
+                            format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            No hay adeudo (`NO_DEBT`), el cliente ya registró un pago por confirmar
+            (`PAYMENT_PENDING_CONFIRMATION`) o ya se le recordó en las últimas 24 horas
+            (`REMINDER_TOO_SOON`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/me/payments:
     get:
       tags:
@@ -3731,6 +3786,20 @@ paths:
                                         - 'null'
                                     completed_at:
                                       type: string
+                                      format: date-time
+                                    reminders_sent:
+                                      type: integer
+                                      description: Recordatorios mandados, automáticos y manuales.
+                                    last_reminder_at:
+                                      type:
+                                        - string
+                                        - 'null'
+                                      format: date-time
+                                    next_reminder_at:
+                                      description: Desde cuándo se puede mandar otro; null si ya se puede.
+                                      type:
+                                        - string
+                                        - 'null'
                                       format: date-time
         '401':
           $ref: '#/components/responses/Unauthorized'

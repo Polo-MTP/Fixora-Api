@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
 
@@ -36,6 +35,7 @@ import {
   listRequestPaymentsController,
   registerPaymentController,
   rejectPaymentController,
+  sendDebtReminderController,
 } from '../controllers/payment.controller.ts';
 
 const router = Router();
@@ -59,20 +59,16 @@ router.post('/:id/cancel', cancelServiceRequestController);
 // Ajustes de precio (API-36)
 router.get('/:id/price-adjustments', listPriceAdjustmentsController);
 router.post('/:id/price-adjustments', proposePriceAdjustmentController);
-router.post(
-  '/:id/price-adjustments/:adjustmentId/approve',
-  approvePriceAdjustmentController,
-);
-router.post(
-  '/:id/price-adjustments/:adjustmentId/reject',
-  rejectPriceAdjustmentController,
-);
+router.post('/:id/price-adjustments/:adjustmentId/approve', approvePriceAdjustmentController);
+router.post('/:id/price-adjustments/:adjustmentId/reject', rejectPriceAdjustmentController);
 
 // Pagos (API-37)
 router.get('/:id/payments', listRequestPaymentsController);
 router.post('/:id/payments', registerPaymentController);
 router.post('/:id/payments/:paymentId/confirm', confirmPaymentController);
 router.post('/:id/payments/:paymentId/reject', rejectPaymentController);
+// El proveedor le recuerda al cliente un adeudo, máximo uno cada 24 horas (API-53).
+router.post('/:id/debt-reminders', sendDebtReminderController);
 
 // Cambio de estado
 router.post('/:id/status', changeServiceRequestStatus);
