@@ -2,6 +2,11 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventBus } from '../event-bus.ts';
 import {
+  DebtReminderEvent,
+  PaymentRegisteredEvent,
+  PaymentRespondedEvent,
+  PriceAdjustmentProposedEvent,
+  PriceAdjustmentRespondedEvent,
   ServiceRequestStatusChangedEvent,
   ReportStatusChangedEvent,
   SupplierVerificationEvent,
@@ -176,6 +181,110 @@ describe('Observadores desacoplados de dominio', () => {
       const channels = realTimeMessages.map((m) => m.channel);
       assert.ok(channels.includes('users:150'));
       assert.ok(channels.includes('admin:verifications'));
+    });
+  });
+
+  describe('Evento: Ajustes de precio (API-36)', () => {
+    it('avisa al cliente cuando el técnico propone y al técnico cuando el cliente responde', async () => {
+      await bus.notify(
+        new PriceAdjustmentProposedEvent({
+          requestId: '61',
+          adjustmentId: '5',
+          clientId: '29',
+          employeeId: '2',
+          amount: '150.50',
+          reason: 'materiales_extra',
+          description: 'Codo y cinta',
+        }),
+      );
+      assert.equal(notificationRecords.length, 1);
+      assert.equal(notificationRecords[0].userId, '29');
+      assert.equal(notificationRecords[0].type, 'ajuste_precio_propuesto');
+      assert.match(notificationRecords[0].message, /150\.50/);
+      assert.deepEqual(
+        realTimeMessages.map((m) => m.channel),
+        ['requests:61', 'users:29', 'technicians:2'],
+      );
+      assert.ok(realTimeMessages.every((m) => m.event === 'price_adjustment_updated'));
+      // No es un cambio de estado: no entra al historial de la solicitud.
+      assert.equal(historyEntries.length, 0);
+
+      await bus.notify(
+        new PriceAdjustmentRespondedEvent({
+          requestId: '61',
+          adjustmentId: '5',
+          clientId: '29',
+          employeeId: '2',
+          technicianUserIds: ['9'],
+          amount: '150.50',
+          decision: 'aprobado',
+        }),
+      );
+      assert.equal(notificationRecords[1].userId, '9');
+      assert.equal(notificationRecords[1].type, 'ajuste_precio_aprobado');
+      assert.equal((realTimeMessages.at(-1)?.data as { status: string }).status, 'aprobado');
+    });
+  });
+
+  describe('Evento: Pagos y adeudos (API-37)', () => {
+    it('pide al proveedor confirmar y avisa al cliente cómo quedó su pago', async () => {
+      await bus.notify(
+        new PaymentRegisteredEvent({
+          requestId: '61',
+          paymentId: '3',
+          clientId: '29',
+          employeeId: '2',
+          providerUserIds: ['9'],
+          amount: '200.00',
+          method: 'transferencia',
+        }),
+      );
+      assert.equal(notificationRecords[0].userId, '9');
+      assert.equal(notificationRecords[0].type, 'pago_registrado');
+      assert.match(notificationRecords[0].message, /200\.00 por transferencia/);
+      assert.ok(realTimeMessages.every((m) => m.event === 'payment_updated'));
+
+      await bus.notify(
+        new PaymentRespondedEvent({
+          requestId: '61',
+          paymentId: '3',
+          clientId: '29',
+          employeeId: '2',
+          branchId: '2',
+          amount: '200.00',
+          method: 'transferencia',
+          decision: 'completado',
+          reason: null,
+          balanceDue: '250.50',
+        }),
+      );
+      assert.equal(notificationRecords[1].userId, '29');
+      assert.equal(notificationRecords[1].type, 'pago_confirmado');
+      assert.match(notificationRecords[1].message, /quedan \$250\.50/);
+
+      await bus.notify(
+        new PaymentRespondedEvent({
+          requestId: '61',
+          paymentId: '4',
+          clientId: '29',
+          employeeId: '2',
+          branchId: '2',
+          amount: '250.50',
+          method: 'efectivo',
+          decision: 'fallido',
+          reason: 'No me llegó',
+          balanceDue: '250.50',
+        }),
+      );
+      assert.equal(notificationRecords[2].type, 'pago_rechazado');
+      assert.match(notificationRecords[2].message, /No me llegó/);
+
+      await bus.notify(
+        new DebtReminderEvent({ requestId: '61', clientId: '29', balanceDue: '250.50' }),
+      );
+      assert.equal(notificationRecords[3].type, 'recordatorio_adeudo');
+      // Ningún pago cambia el estado de la solicitud: no entra al historial.
+      assert.equal(historyEntries.length, 0);
     });
   });
 });

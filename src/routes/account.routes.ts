@@ -5,12 +5,25 @@ import { employeeProfileController } from '../controllers/employee-profile.contr
 
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
 import { notificationsController } from '../controllers/notifications.controller.ts';
+import {
+  listMyDebtsController,
+  listMyPaymentsController,
+} from '../controllers/payment.controller.ts';
 
 const router = Router();
 
 // Se monta en /api/me (ver app.ts), como dice el contrato.
 // Todas las rutas de este módulo requieren autenticación.
 router.use(authenticateToken);
+
+// ============================================================
+// PAGOS Y ADEUDOS (API-37)
+// ============================================================
+
+// Pagos que hizo el cliente o que recibió el proveedor.
+router.get('/payments', listMyPaymentsController);
+// Servicios terminados con saldo: lo que debe el cliente o lo que le deben al proveedor.
+router.get('/debts', listMyDebtsController);
 
 // ============================================================
 // CENTRO DE NOTIFICACIONES (API-25)

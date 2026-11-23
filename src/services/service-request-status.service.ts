@@ -33,6 +33,18 @@ import { ServiceRequestStatusChangedEvent } from '../events/events/domain-events
 import { storageService } from './storage.service.ts';
 import { trackingService } from './tracking.service.ts';
 import { isValidServiceRequestTransition } from '../utils/service-request-transitions.ts';
+import {
+  closePriceForCompletion,
+  loadPriceAdjustments,
+  serializePriceAdjustment,
+  type DbExecutor,
+} from './price-adjustment.rules.ts';
+import {
+  loadPayments,
+  serializePayment,
+  summarizePayments,
+  totalToCharge,
+} from './payment.rules.ts';
 
 export const PUBLIC_STATUSES = [
   'pendiente',
@@ -187,7 +199,8 @@ function validateStatusChange(input: unknown): StatusChangeInput {
   };
 }
 
-async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
+/** Qué solicitudes ve la cuenta según su rol; también la usa el historial de pagos (API-37). */
+export async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
   const actorId = BigInt(actor.id);
   const role = actor.role.trim().toLowerCase();
 
@@ -408,6 +421,13 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     }
   }
 
+  const priceAdjustments = await loadPriceAdjustments(db, requestId);
+  const payments = await loadPayments(db, requestId);
+  const paymentSummary = summarizePayments(
+    await totalToCharge(db, request),
+    payments,
+    request.status === 'completada',
+  );
   const attachments = await db
     .select()
     .from(request_attachments)
@@ -454,6 +474,12 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
         : null,
     base_price: price?.amount ?? null,
     agreed_price: request.agreed_price,
+    /** Precio acordado más los ajustes aprobados; se fija al finalizar (API-36). */
+    total_amount: request.total_amount,
+    price_adjustments: priceAdjustments.map(serializePriceAdjustment),
+    /** Cuánto se ha pagado y cuánto falta (API-37); con saldo y finalizada es un adeudo. */
+    payment_summary: paymentSummary,
+    payments: payments.map(serializePayment),
     attachments: attachments.map((attachment) => ({
       file_key: attachment.file_key,
       mime_type: attachment.mime_type,
@@ -561,6 +587,49 @@ export async function getServiceRequestEvents(requestId: bigint, actor: RequestA
   }));
 }
 
+/**
+ * Si la cuenta es el técnico asignado a la solicitud, o el dueño de la sucursal cuando es un
+ * proveedor independiente (él mismo atiende). Lo usan el avance de estado y los ajustes de precio.
+ */
+export async function isAssignedTechnician(
+  executor: DbExecutor,
+  request: { employee_id: bigint | null; branch_id: bigint | null },
+  actorId: bigint,
+  normalizedRole: string,
+): Promise<boolean> {
+  if (!request.employee_id) return false;
+  const [assignment] = await executor
+    .select({ id: employees.UniqueID })
+    .from(employees)
+    .where(
+      and(
+        eq(employees.UniqueID, request.employee_id),
+        eq(employees.user_id, actorId),
+        eq(employees.active, true),
+      ),
+    )
+    .limit(1);
+  if (assignment) return true;
+  if (normalizedRole !== 'proveedor' || request.branch_id === null) return false;
+
+  const [owned] = await executor
+    .select({ id: branches.UniqueID })
+    .from(branches)
+    .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+    .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+    .where(
+      and(
+        eq(branches.UniqueID, request.branch_id),
+        eq(suppliers.user_id, actorId),
+        eq(suppliers.supplier_type, 'independiente'),
+        eq(suppliers.active, true),
+        eq(business_supplier.active, true),
+      ),
+    )
+    .limit(1);
+  return Boolean(owned);
+}
+
 export async function advanceServiceRequestStatus(
   requestId: bigint,
   actor: RequestActor,
@@ -596,39 +665,8 @@ export async function advanceServiceRequestStatus(
         'INSUFFICIENT_PERMISSIONS',
       );
 
-    const [assignment] = await tx
-      .select({ id: employees.UniqueID })
-      .from(employees)
-      .where(
-        and(
-          eq(employees.UniqueID, current.employee_id),
-          eq(employees.user_id, actorId),
-          eq(employees.active, true),
-        ),
-      )
-      .limit(1);
-
-    let isIndependentOwner = false;
-    if (!assignment && normalizedRole === 'proveedor' && current.branch_id !== null) {
-      const [owned] = await tx
-        .select({ id: branches.UniqueID })
-        .from(branches)
-        .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
-        .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
-        .where(
-          and(
-            eq(branches.UniqueID, current.branch_id),
-            eq(suppliers.user_id, actorId),
-            eq(suppliers.supplier_type, 'independiente'),
-            eq(suppliers.active, true),
-            eq(business_supplier.active, true),
-          ),
-        )
-        .limit(1);
-      isIndependentOwner = Boolean(owned);
-    }
-
-    if (!assignment && !isIndependentOwner) throw new NotFoundError();
+    if (!(await isAssignedTechnician(tx, current, actorId, normalizedRole)))
+      throw new NotFoundError();
 
     const currentStatus = publicStatus(current.status);
     if (!isValidServiceRequestTransition(currentStatus, target)) {
@@ -638,6 +676,12 @@ export async function advanceServiceRequestStatus(
       );
     }
 
+    // Al finalizar, el cliente ya debió responder los ajustes de precio y el total queda fijo (API-36).
+    let totalAmount: string | undefined;
+    if (target === 'completada') {
+      totalAmount = await closePriceForCompletion(tx, requestId, current.agreed_price);
+    }
+
     const dbTarget = target as DbStatus;
     const [updated] = await tx
       .update(service_requests)
@@ -645,7 +689,7 @@ export async function advanceServiceRequestStatus(
         status: dbTarget,
         ...(target === 'en_camino' ? { expires_at: null } : {}),
         ...(target === 'llegado' ? { arrived_at: now } : {}),
-        ...(target === 'completada' ? { completed_at: now } : {}),
+        ...(target === 'completada' ? { completed_at: now, total_amount: totalAmount } : {}),
       })
       .where(eq(service_requests.UniqueID, requestId))
       .returning();

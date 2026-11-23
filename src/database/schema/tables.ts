@@ -452,6 +452,12 @@ export const price_adjustment = pgTable('price_adjustment', {
     .notNull()
     .references(() => users.UniqueID),
   paid_at: timestamp('paid_at'),
+  /** Detalle del motivo que escribe el técnico (API-36). */
+  description: varchar('description', { length: 500 }),
+  created_at: timestamp('created_at').notNull().defaultNow(),
+  /** Cuándo el cliente lo aprobó o rechazó. */
+  responded_at: timestamp('responded_at'),
+  client_uuid: varchar('client_uuid', { length: 100 }),
 });
 
 export const service_payments = pgTable('service_payments', {
@@ -466,6 +472,13 @@ export const service_payments = pgTable('service_payments', {
   paid_at: timestamp('paid_at'),
   currency: varchar('currency', { length: 10 }).notNull().default('MXN'),
   client_uuid: varchar('client_uuid', { length: 100 }),
+  /** Quién lo registró: el cliente que dice que pagó (API-37). */
+  registered_by: bigint('registered_by', { mode: 'bigint' }).references(() => users.UniqueID),
+  created_at: timestamp('created_at').notNull().defaultNow(),
+  /** Quién del lado del proveedor confirmó o rechazó el cobro. */
+  confirmed_by: bigint('confirmed_by', { mode: 'bigint' }).references(() => users.UniqueID),
+  responded_at: timestamp('responded_at'),
+  rejection_reason: varchar('rejection_reason', { length: 500 }),
 });
 
 export const income_records = pgTable('income_records', {

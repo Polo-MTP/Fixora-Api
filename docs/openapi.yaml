@@ -63,6 +63,8 @@ tags:
     description: Búsqueda de proveedores cercanos para el mapa.
   - name: Solicitudes de servicio
     description: Creación, seguimiento y cambios de estado de una solicitud.
+  - name: Pagos
+    description: Registro y confirmación de pagos, historial y adeudos (API-37).
   - name: Administración
     description: Revisión de proveedores y alta de personal interno.
   - name: Usuarios
@@ -3062,6 +3064,9 @@ paths:
         Transiciones permitidas: `aceptada`/`agendada` → `en_camino` → `llegado` → `completada`.
         Guarda la ubicación del técnico como punto clave en el historial. Emite el evento del
         cambio de estado.
+
+        Al pasar a `completada` fija `total_amount` = `agreed_price` + ajustes de precio aprobados
+        (API-36). No se puede finalizar mientras un ajuste espera la respuesta del cliente.
       x-estado: implementado
       x-ticket: API-26
       security:
@@ -3093,7 +3098,9 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: La transición no está permitida desde el estado actual (`INVALID_STATUS_TRANSITION`).
+          description: |
+            La transición no está permitida desde el estado actual (`INVALID_STATUS_TRANSITION`),
+            o se intenta finalizar con un ajuste de precio sin responder (`PRICE_ADJUSTMENT_PENDING`).
           content:
             application/json:
               schema:
@@ -3105,7 +3112,7 @@ paths:
     post:
       tags:
         - Solicitudes de servicio
-      summary: Cancelar una solicitud 
+      summary: Cancelar una solicitud
       description: |
         El cliente puede cancelar una solicitud pendiente sin motivo. Después de la aceptación,
         tanto el cliente como el proveedor deben indicar un motivo. El proveedor o técnico asignado
@@ -3167,6 +3174,774 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/price-adjustments:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Ajustes de precio de una solicitud'
+      description: |
+        Lista los ajustes que propuso el técnico y el total que llevan. La ve quien puede ver la
+        solicitud: el cliente, el técnico asignado y el proveedor o gerente de la sucursal.
+
+        Precio de emergencia: no lleva recargo. Se cobra el precio base de la sucursal que la acepta
+        (`agreed_price`) y lo extra solo entra como un ajuste que el cliente aprueba.
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ajustes y total.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          agreed_price:
+                            oneOf:
+                              - $ref: '#/components/schemas/Money'
+                              - type: 'null'
+                          approved_total:
+                            $ref: '#/components/schemas/Money'
+                          total_amount:
+                            $ref: '#/components/schemas/Money'
+                          adjustments:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/PriceAdjustment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Proponer un ajuste de precio (técnico)'
+      description: |
+        El técnico asignado propone cobrar un monto extra cuando ya llegó al domicilio (`llegado`).
+        Queda `pendiente` hasta que el cliente lo aprueba o rechaza; solo puede haber uno pendiente.
+        Con el mismo `client_uuid` un reintento regresa el ajuste ya creado (200) en vez de
+        duplicarlo. Avisa al cliente por push, centro de notificaciones y tiempo real
+        (`price_adjustment_updated`).
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                amount:
+                  description: Monto extra, mayor a 0 y hasta 50000.00, con máximo 2 decimales.
+                  oneOf:
+                    - type: number
+                    - type: string
+                reason:
+                  type: string
+                  enum: [materiales_extra, tiempo_adicional, otro]
+                description:
+                  type: string
+                  maxLength: 500
+                  description: Obligatoria cuando `reason` es `otro`.
+                client_uuid:
+                  type: string
+                  maxLength: 100
+              required:
+                - amount
+                - reason
+      responses:
+        '201':
+          description: Ajuste creado y pendiente de respuesta.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PriceAdjustment'
+        '200':
+          description: Reintento con el mismo `client_uuid`; regresa el ajuste existente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PriceAdjustment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            La solicitud no está en `llegado` (`INVALID_REQUEST_STATUS`) o ya hay un ajuste
+            esperando respuesta (`PRICE_ADJUSTMENT_PENDING`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/price-adjustments/{adjustmentId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: adjustmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Aprobar un ajuste de precio (cliente)'
+      description: |
+        Solo el cliente de la solicitud, mientras está en `llegado`. El monto se suma al total que
+        se fija al finalizar. Avisa al técnico.
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ajuste aprobado, con el total actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          adjustment:
+                            $ref: '#/components/schemas/PriceAdjustment'
+                          total_amount:
+                            $ref: '#/components/schemas/Money'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            El ajuste ya fue respondido (`PRICE_ADJUSTMENT_ALREADY_RESPONDED`) o la solicitud ya no
+            admite cambios de precio (`INVALID_REQUEST_STATUS`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/price-adjustments/{adjustmentId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: adjustmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+    post:
+      tags:
+        - Solicitudes de servicio
+      summary: 'Rechazar un ajuste de precio (cliente)'
+      description: Igual que aprobar, pero el monto no se suma. Avisa al técnico.
+      x-estado: implementado
+      x-ticket: API-36
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ajuste rechazado, con el total sin ese monto.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          adjustment:
+                            $ref: '#/components/schemas/PriceAdjustment'
+                          total_amount:
+                            $ref: '#/components/schemas/Money'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El ajuste ya fue respondido o la solicitud ya no admite cambios de precio.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/payments:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Pagos
+      summary: 'Pagos de una solicitud'
+      description: |
+        Pagos registrados y lo que falta. Lo ve quien puede ver la solicitud. El saldo es el total
+        (`total_amount`) menos lo confirmado por el proveedor; si la solicitud está finalizada y queda
+        saldo, es un adeudo (`has_debt`).
+      x-estado: implementado
+      x-ticket: API-37
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Resumen y pagos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          summary:
+                            $ref: '#/components/schemas/PaymentSummary'
+                          payments:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - Pagos
+      summary: 'Registrar un pago (cliente)'
+      description: |
+        El cliente registra que pagó en efectivo o por transferencia un servicio ya `completada`.
+        Queda `pendiente` hasta que el proveedor confirma que lo recibió; solo puede haber uno
+        pendiente. Sin `amount` paga todo lo que falta; puede pagar en partes. Con el mismo
+        `client_uuid` un reintento regresa el pago ya creado (200). La tarjeta todavía no está
+        disponible (`PAYMENT_METHOD_UNAVAILABLE`). Avisa al técnico.
+      x-estado: implementado
+      x-ticket: API-37
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                method:
+                  type: string
+                  enum: [efectivo, transferencia]
+                amount:
+                  description: Opcional; mayor a 0 y hasta lo que falta, con máximo 2 decimales.
+                  oneOf:
+                    - type: number
+                    - type: string
+                reference:
+                  type: string
+                  maxLength: 255
+                  description: Folio o referencia de la transferencia.
+                client_uuid:
+                  type: string
+                  maxLength: 100
+              required:
+                - method
+      responses:
+        '201':
+          description: Pago registrado, esperando confirmación.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Payment'
+        '200':
+          description: Reintento con el mismo `client_uuid`; regresa el pago existente.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Payment'
+        '400':
+          description: |
+            Datos inválidos (`VALIDATION_ERROR`), tarjeta (`PAYMENT_METHOD_UNAVAILABLE`) o monto mayor
+            a lo que falta (`AMOUNT_EXCEEDS_BALANCE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            La solicitud no está finalizada (`INVALID_REQUEST_STATUS`), ya hay un pago esperando
+            confirmación (`PAYMENT_PENDING`) o ya está pagada (`NOTHING_TO_PAY`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/payments/{paymentId}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: paymentId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+    post:
+      tags:
+        - Pagos
+      summary: 'Confirmar que se recibió el pago (proveedor)'
+      description: |
+        El técnico asignado, el dueño o el gerente de la sucursal confirma el cobro. Al quedar pagado
+        todo, los ajustes de precio aprobados pasan a `pagado`. Registra el ingreso con la comisión
+        de la plataforma (API-38). Avisa al cliente.
+      x-estado: implementado
+      x-ticket: API-37
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pago confirmado, con el saldo actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          payment:
+                            $ref: '#/components/schemas/Payment'
+                          summary:
+                            $ref: '#/components/schemas/PaymentSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El pago ya fue respondido (`PAYMENT_ALREADY_RESPONDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/service-requests/{id}/payments/{paymentId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: paymentId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+    post:
+      tags:
+        - Pagos
+      summary: 'Marcar un pago como no recibido (proveedor)'
+      description: El pago queda `fallido` y el saldo no cambia. Avisa al cliente con el motivo.
+      x-estado: implementado
+      x-ticket: API-37
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Pago marcado como no recibido.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          payment:
+                            $ref: '#/components/schemas/Payment'
+                          summary:
+                            $ref: '#/components/schemas/PaymentSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El pago ya fue respondido (`PAYMENT_ALREADY_RESPONDED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/me/payments:
+    get:
+      tags:
+        - Pagos
+      summary: 'Mi historial de pagos'
+      description: |
+        Para el cliente, los pagos que registró; para el técnico, dueño o gerente, los de las
+        solicitudes que atiende o de sus sucursales. Más recientes primero.
+      x-estado: implementado
+      x-ticket: API-37
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Página del historial.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/Payment'
+                            - type: object
+                              properties:
+                                request_id:
+                                  type: string
+                                category:
+                                  type:
+                                    - string
+                                    - 'null'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me/debts:
+    get:
+      tags:
+        - Pagos
+      summary: 'Mis adeudos'
+      description: |
+        Servicios finalizados con saldo: para el cliente, lo que debe; para el proveedor, lo que le
+        deben. El cliente recibe un recordatorio al día siguiente de finalizar y después uno al día,
+        hasta 5, mientras no registre el pago.
+      x-estado: implementado
+      x-ticket: API-37
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Adeudos y la suma de lo que falta.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total_due:
+                            $ref: '#/components/schemas/Money'
+                          debts:
+                            type: array
+                            items:
+                              allOf:
+                                - $ref: '#/components/schemas/PaymentSummary'
+                                - type: object
+                                  properties:
+                                    request_id:
+                                      type: string
+                                    category:
+                                      type:
+                                        - string
+                                        - 'null'
+                                    completed_at:
+                                      type: string
+                                      format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/income:
+    get:
+      tags:
+        - Administración
+      summary: 'Ingresos y comisiones'
+      description: |
+        Un ingreso por cada pago confirmado, con bruto, comisión y neto. La comisión se calcula con
+        el porcentaje vigente al confirmarse el pago y se guarda en el ingreso. Con efectivo o
+        transferencia el dinero le llega completo al proveedor, así que la comisión queda
+        `pendiente` hasta que la paga. `totals` suma todo lo filtrado, no solo la página.
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: branch_id
+          in: query
+          schema:
+            type: string
+            pattern: '^[1-9][0-9]{0,17}$'
+        - name: commission_status
+          in: query
+          schema:
+            type: string
+            enum: [pendiente, pagada]
+        - name: from
+          in: query
+          description: Desde esta fecha (AAAA-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: Hasta esta fecha, incluida (AAAA-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Página de ingresos y totales.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/IncomeRecord'
+                      totals:
+                        type: object
+                        properties:
+                          gross_amount:
+                            $ref: '#/components/schemas/Money'
+                          commission_amount:
+                            $ref: '#/components/schemas/Money'
+                          net_amount:
+                            $ref: '#/components/schemas/Money'
+                          commission_pending:
+                            $ref: '#/components/schemas/Money'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/income/{id}/commission-paid:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Administración
+      summary: 'Marcar la comisión como pagada'
+      description: El proveedor pagó la comisión de este ingreso; queda `liquidado`.
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Comisión pagada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/IncomeRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La comisión ya estaba pagada (`COMMISSION_ALREADY_PAID`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/commission-settings:
+    get:
+      tags:
+        - Administración
+      summary: 'Porcentaje de comisión'
+      description: |
+        El porcentaje vigente y los cambios anteriores. Si el Administrador nunca configuró uno, se
+        usa 10 % (`is_default`).
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Porcentaje vigente e historial.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          current:
+                            type: object
+                            properties:
+                              percentage:
+                                type: string
+                                example: '10.00'
+                              effective_from:
+                                type:
+                                  - string
+                                  - 'null'
+                                format: date-time
+                              is_default:
+                                type: boolean
+                          history:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/CommissionSetting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags:
+        - Administración
+      summary: 'Cambiar el porcentaje de comisión'
+      description: Rige desde ahora; los ingresos ya registrados conservan el suyo.
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                percentage:
+                  description: De 0 a 50, con máximo 2 decimales.
+                  oneOf:
+                    - type: number
+                    - type: string
+              required:
+                - percentage
+      responses:
+        '201':
+          description: Porcentaje registrado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommissionSetting'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /api/service-requests/{id}/events:
     parameters:
@@ -5247,6 +6022,153 @@ components:
           type: string
           maxLength: 500
 
+    IncomeRecord:
+      type: object
+      description: Ingreso de un pago confirmado con la comisión de la plataforma (API-38).
+      properties:
+        id:
+          type: string
+        branch_id:
+          type: string
+        branch_name:
+          type: string
+        request_id:
+          type: string
+        payment_id:
+          type: string
+        gross_amount:
+          $ref: '#/components/schemas/Money'
+        commission_amount:
+          $ref: '#/components/schemas/Money'
+        net_amount:
+          $ref: '#/components/schemas/Money'
+        currency:
+          type: string
+          example: MXN
+        status:
+          type: string
+          enum: [pendiente, liquidado]
+        commission_status:
+          type: string
+          enum: [pendiente, pagada]
+        commission_paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        settled_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    CommissionSetting:
+      type: object
+      properties:
+        id:
+          type: string
+        percentage:
+          type: string
+          example: '10.00'
+        effective_from:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PaymentSummary:
+      type: object
+      description: Cuánto se ha pagado y cuánto falta (API-37).
+      properties:
+        total_amount:
+          $ref: '#/components/schemas/Money'
+        paid:
+          $ref: '#/components/schemas/Money'
+        pending_confirmation:
+          $ref: '#/components/schemas/Money'
+        balance_due:
+          $ref: '#/components/schemas/Money'
+        has_debt:
+          type: boolean
+          description: Finalizada y con saldo.
+    Payment:
+      type: object
+      description: Pago que registra el cliente y el proveedor confirma (API-37).
+      properties:
+        id:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        currency:
+          type: string
+          example: MXN
+        method:
+          type: string
+          enum: [efectivo, transferencia, tarjeta]
+        reference:
+          type:
+            - string
+            - 'null'
+        status:
+          type: string
+          enum: [pendiente, completado, fallido, reembolsado]
+        registered_by:
+          type:
+            - string
+            - 'null'
+        confirmed_by:
+          type:
+            - string
+            - 'null'
+        rejection_reason:
+          type:
+            - string
+            - 'null'
+        created_at:
+          type: string
+          format: date-time
+        responded_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    PriceAdjustment:
+      type: object
+      description: Monto extra que propone el técnico y el cliente aprueba o rechaza (API-36).
+      properties:
+        id:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        reason:
+          type: string
+          enum: [materiales_extra, tiempo_adicional, otro]
+        description:
+          type:
+            - string
+            - 'null'
+        status:
+          type: string
+          enum: [pendiente, aprobado, rechazado, pagado]
+        declared_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        responded_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
     ServiceRequest:
       type: object
       properties:
@@ -5326,6 +6248,21 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
+        total_amount:
+          description: Precio acordado más ajustes aprobados; se fija al finalizar (API-36).
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        price_adjustments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceAdjustment'
+        payment_summary:
+          $ref: '#/components/schemas/PaymentSummary'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
         attachments:
           type: array
           items:
