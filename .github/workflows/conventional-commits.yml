@@ -63,8 +63,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # Commits que ya están en develop con un mensaje mal escrito y no se pueden reescribir.
+          # Solo se exceptúan por su SHA completo: cualquier commit nuevo se revisa igual.
+          #   3f7e954 feat(events): ... (API-4)- #15  (título del squash editado a mano)
+          historicos="3f7e954b383f7e5ed255d2450b45e6e0360c0d6e"
           fallos=0
           for sha in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+            case " $historicos " in *" $sha "*) continue ;; esac
             git log -1 --format=%B "$sha" > "$RUNNER_TEMP/commit.txt"
             if ! sh "$RUNNER_TEMP/commit-msg" "$RUNNER_TEMP/commit.txt"; then
               echo "::error::El commit $(git log -1 --format=%h "$sha") no sigue el formato."

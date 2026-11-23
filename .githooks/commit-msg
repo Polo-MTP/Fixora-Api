@@ -17,7 +17,8 @@ case "$subject" in
 esac
 
 types='feat|fix|docs|style|refactor|perf|test|build|ci|chore'
-task="^($types)(\([a-z0-9-]+\))?!?: .+ \($prefix-[0-9]+\)$"
+# Al mergear con squash, GitHub agrega el número del PR al final: "... (API-36) (#35)".
+task="^($types)(\([a-z0-9-]+\))?!?: .+ \($prefix-[0-9]+\)( \(#[0-9]+\))?$"
 # Commit de versión en las ramas release/*, por ejemplo: chore: v1.2.0
 release='^chore(\(release\))?: v[0-9]+\.[0-9]+\.[0-9]+$'
 
