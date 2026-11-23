@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 
 import { db } from '../config/database.ts';
@@ -31,7 +31,20 @@ import {
 import { eventBus } from '../events/event-bus.ts';
 import { ServiceRequestStatusChangedEvent } from '../events/events/domain-events.ts';
 import { storageService } from './storage.service.ts';
+import { trackingService } from './tracking.service.ts';
 import { isValidServiceRequestTransition } from '../utils/service-request-transitions.ts';
+import {
+  closePriceForCompletion,
+  loadPriceAdjustments,
+  serializePriceAdjustment,
+  type DbExecutor,
+} from './price-adjustment.rules.ts';
+import {
+  loadPayments,
+  serializePayment,
+  summarizePayments,
+  totalToCharge,
+} from './payment.rules.ts';
 
 export const PUBLIC_STATUSES = [
   'pendiente',
@@ -186,7 +199,8 @@ function validateStatusChange(input: unknown): StatusChangeInput {
   };
 }
 
-async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
+/** Qué solicitudes ve la cuenta según su rol; también la usa el historial de pagos (API-37). */
+export async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
   const actorId = BigInt(actor.id);
   const role = actor.role.trim().toLowerCase();
 
@@ -208,9 +222,40 @@ async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
         ),
       );
     const branchIds = ownedBranches.map((branch) => branch.id);
+    const assignments = await db
+      .select({ id: employees.UniqueID })
+      .from(employees)
+      .where(and(eq(employees.user_id, actorId), eq(employees.active, true)));
+    const employeeIds = assignments.map((assignment) => assignment.id);
+
+    const conditions: SQL[] = [];
+    if (branchIds.length) {
+      conditions.push(inArray(service_requests.branch_id, branchIds));
+    }
+    if (employeeIds.length) {
+      conditions.push(inArray(service_requests.employee_id, employeeIds));
+      conditions.push(
+        and(
+          eq(service_requests.status, 'pendiente'),
+          exists(
+            db
+              .select({ id: request_dispatches.UniqueID })
+              .from(request_dispatches)
+              .where(
+                and(
+                  eq(request_dispatches.request_id, service_requests.UniqueID),
+                  inArray(request_dispatches.employee_id, employeeIds),
+                  isNull(request_dispatches.response),
+                ),
+              ),
+          ),
+        )!,
+      );
+    }
+
     return {
-      condition: branchIds.length ? inArray(service_requests.branch_id, branchIds) : sql`false`,
-      employeeIds: [],
+      condition: conditions.length ? or(...conditions)! : sql`false`,
+      employeeIds,
     };
   }
 
@@ -232,17 +277,21 @@ async function getAccessScope(actor: RequestActor): Promise<AccessScope> {
     }
 
     if (!employeeIds.length) return { condition: sql`false`, employeeIds };
-    const dispatchMatch = exists(
-      db
-        .select({ id: request_dispatches.UniqueID })
-        .from(request_dispatches)
-        .where(
-          and(
-            eq(request_dispatches.request_id, service_requests.UniqueID),
-            inArray(request_dispatches.employee_id, employeeIds),
+    const dispatchMatch = and(
+      eq(service_requests.status, 'pendiente'),
+      exists(
+        db
+          .select({ id: request_dispatches.UniqueID })
+          .from(request_dispatches)
+          .where(
+            and(
+              eq(request_dispatches.request_id, service_requests.UniqueID),
+              inArray(request_dispatches.employee_id, employeeIds),
+              isNull(request_dispatches.response),
+            ),
           ),
-        ),
-    );
+      ),
+    )!;
     return {
       condition: or(inArray(service_requests.employee_id, employeeIds), dispatchMatch)!,
       employeeIds,
@@ -323,17 +372,28 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     );
   const [price] = request.branch_id
     ? await db
-      .select({ amount: branches_categories.base_price })
-      .from(branches_categories)
-      .where(
-        and(
-          eq(branches_categories.branch_id, request.branch_id),
-          eq(branches_categories.category_id, request.category_id),
-          eq(branches_categories.active, true),
-        ),
-      )
-      .limit(1)
+        .select({ amount: branches_categories.base_price })
+        .from(branches_categories)
+        .where(
+          and(
+            eq(branches_categories.branch_id, request.branch_id),
+            eq(branches_categories.category_id, request.category_id),
+            eq(branches_categories.active, true),
+          ),
+        )
+        .limit(1)
     : [undefined];
+
+  // A cuántos técnicos se les avisó y cuántos la rechazaron (API-30). Al rechazar, la solicitud
+  // sigue «pendiente» hasta vencer; con esto el cliente se entera de inmediato.
+  const dispatchRows = await db
+    .select({ response: request_dispatches.response })
+    .from(request_dispatches)
+    .where(eq(request_dispatches.request_id, requestId));
+  const dispatches = {
+    sent: dispatchRows.length,
+    rejected: dispatchRows.filter((row) => row.response === 'rechazo').length,
+  };
 
   let technician: { employee_id: string; name: string; photo_url: string | null } | null = null;
   if (request.employee_id) {
@@ -361,6 +421,13 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     }
   }
 
+  const priceAdjustments = await loadPriceAdjustments(db, requestId);
+  const payments = await loadPayments(db, requestId);
+  const paymentSummary = summarizePayments(
+    await totalToCharge(db, request),
+    payments,
+    request.status === 'completada',
+  );
   const attachments = await db
     .select()
     .from(request_attachments)
@@ -382,31 +449,37 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     },
     address: address
       ? {
-        id: address.UniqueID.toString(),
-        alias: addressAlias,
-        reference: address.reference,
-        street: address.street,
-        num_ext: address.num_ext,
-        num_int: address.num_int,
-        colony: address.colony,
-        municipality: address.municipality,
-        state: address.state,
-        postal_code: address.postal_code,
-        country: address.country,
-        latitude: normalizeNumber(address.latitude),
-        longitude: normalizeNumber(address.longitude),
-        is_main: addressIsMain,
-      }
+          id: address.UniqueID.toString(),
+          alias: addressAlias,
+          reference: address.reference,
+          street: address.street,
+          num_ext: address.num_ext,
+          num_int: address.num_int,
+          colony: address.colony,
+          municipality: address.municipality,
+          state: address.state,
+          postal_code: address.postal_code,
+          country: address.country,
+          latitude: normalizeNumber(address.latitude),
+          longitude: normalizeNumber(address.longitude),
+          is_main: addressIsMain,
+        }
       : null,
     location:
       request.latitude !== null && request.longitude !== null
         ? {
-          latitude: normalizeNumber(request.latitude),
-          longitude: normalizeNumber(request.longitude),
-        }
+            latitude: normalizeNumber(request.latitude),
+            longitude: normalizeNumber(request.longitude),
+          }
         : null,
     base_price: price?.amount ?? null,
     agreed_price: request.agreed_price,
+    /** Precio acordado más los ajustes aprobados; se fija al finalizar (API-36). */
+    total_amount: request.total_amount,
+    price_adjustments: priceAdjustments.map(serializePriceAdjustment),
+    /** Cuánto se ha pagado y cuánto falta (API-37); con saldo y finalizada es un adeudo. */
+    payment_summary: paymentSummary,
+    payments: payments.map(serializePayment),
     attachments: attachments.map((attachment) => ({
       file_key: attachment.file_key,
       mime_type: attachment.mime_type,
@@ -421,6 +494,7 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     completed_at: request.completed_at,
     canceled_by: request.canceled_by,
     canceled_reason: request.canceled_reason,
+    dispatches,
   };
 }
 
@@ -513,13 +587,57 @@ export async function getServiceRequestEvents(requestId: bigint, actor: RequestA
   }));
 }
 
+/**
+ * Si la cuenta es el técnico asignado a la solicitud, o el dueño de la sucursal cuando es un
+ * proveedor independiente (él mismo atiende). Lo usan el avance de estado y los ajustes de precio.
+ */
+export async function isAssignedTechnician(
+  executor: DbExecutor,
+  request: { employee_id: bigint | null; branch_id: bigint | null },
+  actorId: bigint,
+  normalizedRole: string,
+): Promise<boolean> {
+  if (!request.employee_id) return false;
+  const [assignment] = await executor
+    .select({ id: employees.UniqueID })
+    .from(employees)
+    .where(
+      and(
+        eq(employees.UniqueID, request.employee_id),
+        eq(employees.user_id, actorId),
+        eq(employees.active, true),
+      ),
+    )
+    .limit(1);
+  if (assignment) return true;
+  if (normalizedRole !== 'proveedor' || request.branch_id === null) return false;
+
+  const [owned] = await executor
+    .select({ id: branches.UniqueID })
+    .from(branches)
+    .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+    .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+    .where(
+      and(
+        eq(branches.UniqueID, request.branch_id),
+        eq(suppliers.user_id, actorId),
+        eq(suppliers.supplier_type, 'independiente'),
+        eq(suppliers.active, true),
+        eq(business_supplier.active, true),
+      ),
+    )
+    .limit(1);
+  return Boolean(owned);
+}
+
 export async function advanceServiceRequestStatus(
   requestId: bigint,
   actor: RequestActor,
   rawInput: unknown,
 ) {
   const input = validateStatusChange(rawInput);
-  if (actor.role.trim().toLowerCase() !== 'empleado') {
+  const normalizedRole = actor.role.trim().toLowerCase();
+  if (normalizedRole !== 'empleado' && normalizedRole !== 'proveedor') {
     throw new ForbiddenError(
       'Solo el técnico asignado puede avanzar el estado de la solicitud.',
       'INSUFFICIENT_PERMISSIONS',
@@ -531,6 +649,7 @@ export async function advanceServiceRequestStatus(
   const now = new Date();
   let updatedRequest: typeof service_requests.$inferSelect | null = null;
   let fromStatus = '';
+  const shouldSaveCoordinates = ['en_camino', 'llegado'].includes(target);
 
   await db.transaction(async (tx) => {
     const [current] = await tx
@@ -546,18 +665,8 @@ export async function advanceServiceRequestStatus(
         'INSUFFICIENT_PERMISSIONS',
       );
 
-    const [assignment] = await tx
-      .select({ id: employees.UniqueID })
-      .from(employees)
-      .where(
-        and(
-          eq(employees.UniqueID, current.employee_id),
-          eq(employees.user_id, actorId),
-          eq(employees.active, true),
-        ),
-      )
-      .limit(1);
-    if (!assignment) throw new NotFoundError();
+    if (!(await isAssignedTechnician(tx, current, actorId, normalizedRole)))
+      throw new NotFoundError();
 
     const currentStatus = publicStatus(current.status);
     if (!isValidServiceRequestTransition(currentStatus, target)) {
@@ -567,6 +676,12 @@ export async function advanceServiceRequestStatus(
       );
     }
 
+    // Al finalizar, el cliente ya debió responder los ajustes de precio y el total queda fijo (API-36).
+    let totalAmount: string | undefined;
+    if (target === 'completada') {
+      totalAmount = await closePriceForCompletion(tx, requestId, current.agreed_price);
+    }
+
     const dbTarget = target as DbStatus;
     const [updated] = await tx
       .update(service_requests)
@@ -574,19 +689,20 @@ export async function advanceServiceRequestStatus(
         status: dbTarget,
         ...(target === 'en_camino' ? { expires_at: null } : {}),
         ...(target === 'llegado' ? { arrived_at: now } : {}),
-        ...(target === 'completada' ? { completed_at: now } : {}),
+        ...(target === 'completada' ? { completed_at: now, total_amount: totalAmount } : {}),
       })
       .where(eq(service_requests.UniqueID, requestId))
       .returning();
     if (!updated) throw new NotFoundError();
 
+    // Guardar latitud y longitud solo al aceptar, salir (en_camino) y llegar (llegado) (API-34)
     await tx.insert(service_request_events).values({
       request_id: requestId,
       from_status: current.status,
       to_status: dbTarget,
       changed_by: actorId,
-      latitude: String(input.latitude),
-      longitude: String(input.longitude),
+      latitude: shouldSaveCoordinates ? String(input.latitude) : null,
+      longitude: shouldSaveCoordinates ? String(input.longitude) : null,
       created_at: now,
     });
 
@@ -613,11 +729,20 @@ export async function advanceServiceRequestStatus(
     clientId: updatedRequest!.client_id.toString(),
     employeeId: updatedRequest!.employee_id?.toString() ?? null,
     branchId: updatedRequest!.branch_id?.toString() ?? null,
-    latitude: input.latitude,
-    longitude: input.longitude,
+    latitude: shouldSaveCoordinates ? input.latitude : undefined,
+    longitude: shouldSaveCoordinates ? input.longitude : undefined,
     historyPersisted: true,
   });
   await eventBus.notify(event);
+
+  // Al llegar o finalizar la solicitud, se borra el tracking activo de Redis (API-32)
+  if (['llegado', 'completada'].includes(target)) {
+    try {
+      await trackingService.clearRequestTracking(requestId);
+    } catch (error) {
+      console.error('[API-32] No se pudo limpiar el tracking de Redis:', error);
+    }
+  }
 
   return serializeServiceRequestForResponse(requestId);
 }

@@ -21,6 +21,18 @@ export interface AlarmNotificationPayload {
   tag?: string;
 }
 
+/**
+ * Aviso de solicitud entrante (API-28): en Android va solo con datos para que la app arme la
+ * alarma a pantalla completa aunque esté cerrada; [ttlSeconds] evita entregarla ya vencida.
+ */
+export interface IncomingRequestAlarmPayload {
+  title: string;
+  body: string;
+  channelId?: string;
+  data?: Record<string, string>;
+  ttlSeconds?: number;
+}
+
 export interface PushSendResult {
   successCount: number;
   failureCount: number;

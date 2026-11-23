@@ -32,4 +32,9 @@ export const ENV = {
   FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID ?? '',
   FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL ?? '',
   FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n') ?? '',
+
+  // MapLibre + OpenFreeMap y motor de ruteo OSRM / OpenStreetMap (API-33: cálculo de rutas y ETA)
+  ROUTING_API_URL: process.env.ROUTING_API_URL || 'https://router.project-osrm.org',
+  OPENFREEMAP_STYLE_URL:
+    process.env.OPENFREEMAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/liberty',
 } as const;

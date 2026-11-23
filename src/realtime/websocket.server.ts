@@ -1,7 +1,8 @@
+
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
-import { and, eq, gt, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { db } from '../config/database.ts';
 import {
   employees,
@@ -16,6 +17,7 @@ import {
 } from '../database/schema/tables.ts';
 import type { RealTimeMessage } from '../events/observers/realtime.observer.ts';
 import { canAccessChat } from '../services/chat.service.ts';
+import { trackingService } from '../services/tracking.service.ts';
 
 const WS_PATH = '/ws';
 const AUTH_TIMEOUT_MS = 5_000;
@@ -48,6 +50,11 @@ interface ClientMessage {
   type?: unknown;
   token?: unknown;
   requestId?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  heading?: unknown;
+  speed?: unknown;
+  timestamp?: unknown;
 }
 
 const sockets = new Set<AuthenticatedSocket>();
@@ -88,7 +95,11 @@ async function authenticate(
   const secret = process.env.JWT_ACCESS_SECRET;
   if (!secret || secret.length < 32) throw new Error('AUTH_CONFIGURATION_ERROR');
 
-  const decoded = jwt.verify(token, secret, { issuer: JWT_ISSUER, audience: JWT_AUDIENCE });
+  const decoded = jwt.verify(token, secret, {
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+  });
+
   if (
     typeof decoded === 'string' ||
     decoded.type !== 'access' ||
@@ -96,10 +107,12 @@ async function authenticate(
     typeof decoded.sid !== 'string' ||
     typeof decoded.role !== 'string' ||
     (decoded.scope !== undefined && decoded.scope !== 'supplier_application')
-  )
+  ) {
     throw new Error('INVALID_ACCESS_TOKEN');
+  }
 
   const payload = decoded as unknown as AccessTokenPayload;
+
   const [session] = await db
     .select({
       userId: users.UniqueID,
@@ -119,12 +132,21 @@ async function authenticate(
     )
     .limit(1);
 
-  if (!session || session.userId.toString() !== payload.sub) throw new Error('INVALID_SESSION');
-  const state = String(session.state).trim().toLowerCase();
-  if (!session.roleActive || !['activo', 'activa'].includes(state))
-    throw new Error('ACCOUNT_NOT_ACTIVE');
+  if (!session || session.userId.toString() !== payload.sub) {
+    throw new Error('INVALID_SESSION');
+  }
 
-  return { userId: session.userId.toString(), role: session.roleName, sessionId: payload.sid };
+  const state = String(session.state).trim().toLowerCase();
+
+  if (!session.roleActive || !['activo', 'activa'].includes(state)) {
+    throw new Error('ACCOUNT_NOT_ACTIVE');
+  }
+
+  return {
+    userId: session.userId.toString(),
+    role: session.roleName,
+    sessionId: payload.sid,
+  };
 }
 
 async function canJoinRequestRoom(
@@ -135,6 +157,7 @@ async function canJoinRequestRoom(
   const [request] = await db
     .select({
       id: service_requests.UniqueID,
+      status: service_requests.status,
       clientId: service_requests.client_id,
       employeeId: service_requests.employee_id,
       branchId: service_requests.branch_id,
@@ -142,19 +165,37 @@ async function canJoinRequestRoom(
     .from(service_requests)
     .where(eq(service_requests.UniqueID, requestId))
     .limit(1);
+
   if (!request) return false;
+
   const actorId = BigInt(userId);
+
   if (request.clientId === actorId) return true;
 
   const normalizedRole = role.trim().toLowerCase();
-  if (normalizedRole === 'empleado' || normalizedRole === 'gerente') {
+
+  if (
+    normalizedRole === 'empleado' ||
+    normalizedRole === 'gerente' ||
+    normalizedRole === 'proveedor'
+  ) {
     const assignments = await db
       .select({ id: employees.UniqueID })
       .from(employees)
-      .where(and(eq(employees.user_id, actorId), eq(employees.active, true)));
+      .where(
+        and(
+          eq(employees.user_id, actorId),
+          eq(employees.active, true),
+        ),
+      );
+
     const employeeIds = assignments.map((item) => item.id);
-    if (request.employeeId && employeeIds.includes(request.employeeId)) return true;
-    if (employeeIds.length) {
+
+    if (request.employeeId && employeeIds.includes(request.employeeId)) {
+      return true;
+    }
+
+    if (employeeIds.length && request.status === 'pendiente') {
       const [dispatch] = await db
         .select({ id: request_dispatches.UniqueID })
         .from(request_dispatches)
@@ -162,12 +203,19 @@ async function canJoinRequestRoom(
           and(
             eq(request_dispatches.request_id, requestId),
             inArray(request_dispatches.employee_id, employeeIds),
+            isNull(request_dispatches.response),
           ),
         )
         .limit(1);
+
       if (dispatch) return true;
     }
-    if (normalizedRole === 'gerente' && assignments.length && request.branchId !== null) {
+
+    if (
+      normalizedRole === 'gerente' &&
+      assignments.length &&
+      request.branchId !== null
+    ) {
       const [branchAssignment] = await db
         .select({ id: employees.UniqueID })
         .from(employees)
@@ -179,6 +227,7 @@ async function canJoinRequestRoom(
           ),
         )
         .limit(1);
+
       if (branchAssignment) return true;
     }
   }
@@ -187,8 +236,14 @@ async function canJoinRequestRoom(
     const [ownedBranch] = await db
       .select({ id: branches.UniqueID })
       .from(branches)
-      .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
-      .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+      .innerJoin(
+        business_supplier,
+        eq(branches.business_id, business_supplier.business_id),
+      )
+      .innerJoin(
+        suppliers,
+        eq(business_supplier.supplier_id, suppliers.UniqueID),
+      )
       .where(
         and(
           eq(branches.UniqueID, request.branchId),
@@ -198,13 +253,19 @@ async function canJoinRequestRoom(
         ),
       )
       .limit(1);
+
     if (ownedBranch) return true;
   }
+
   return false;
 }
 
-async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<void> {
+async function handleMessage(
+  socket: AuthenticatedSocket,
+  raw: Buffer,
+): Promise<void> {
   let message: ClientMessage;
+
   try {
     message = JSON.parse(raw.toString('utf8')) as ClientMessage;
   } catch {
@@ -225,56 +286,86 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
       send(socket, {
         type: 'error',
         code: 'AUTH_REQUIRED',
-        message: 'Envía primero {"type":"authenticate","token":"..."}.',
+        message: 'Envía primero {"type":"authenticate","token":"..."} .',
       });
       socket.close(1008, 'Autenticación requerida');
       return;
     }
+
     try {
       const user = await authenticate(message.token.trim());
+
       socket.userId = user.userId;
       socket.role = user.role;
       socket.sessionId = user.sessionId;
       socket.accessToken = message.token.trim();
       socket.authenticated = true;
+
       if (socket.authTimer) clearTimeout(socket.authTimer);
+
       socket.sessionCheckTimer = setInterval(() => {
         void authenticate(socket.accessToken!)
           .then((current) => {
-            if (current.userId !== socket.userId || current.sessionId !== socket.sessionId) {
+            if (
+              current.userId !== socket.userId ||
+              current.sessionId !== socket.sessionId
+            ) {
               socket.close(1008, 'Sesión inválida');
             }
           })
           .catch(() => socket.close(1008, 'Sesión expirada o revocada'));
       }, 30_000);
+
       joinRoom(socket, `users:${user.userId}`);
+
       send(socket, {
         type: 'authenticated',
         user: { id: user.userId, role: user.role },
         rooms: [`users:${user.userId}`],
       });
     } catch (error) {
-      const code = error instanceof Error ? error.message : 'AUTHENTICATION_FAILED';
-      send(socket, { type: 'error', code, message: 'No fue posible autenticar la conexión.' });
+      const code =
+        error instanceof Error ? error.message : 'AUTHENTICATION_FAILED';
+
+      send(socket, {
+        type: 'error',
+        code,
+        message: 'No fue posible autenticar la conexión.',
+      });
+
       socket.close(1008, 'Token o sesión inválidos');
     }
+
     return;
   }
 
   // Revalidar JWT y sesión en cada mensaje para respetar revocaciones y expiraciones.
   try {
     const currentUser = await authenticate(socket.accessToken!);
-    if (currentUser.userId !== socket.userId || currentUser.sessionId !== socket.sessionId) {
+
+    if (
+      currentUser.userId !== socket.userId ||
+      currentUser.sessionId !== socket.sessionId
+    ) {
       throw new Error('INVALID_SESSION');
     }
   } catch {
-    send(socket, { type: 'error', code: 'INVALID_SESSION', message: 'La sesión ya no es válida.' });
+    send(socket, {
+      type: 'error',
+      code: 'INVALID_SESSION',
+      message: 'La sesión ya no es válida.',
+    });
+
     socket.close(1008, 'Sesión inválida');
     return;
   }
 
+  // Suscripción a solicitudes para recibir eventos en tiempo real.
   if (message.type === 'subscribe_request') {
-    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
+    if (
+      typeof message.requestId !== 'string' ||
+      !/^[1-9]\d{0,17}$/.test(message.requestId)
+    ) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -282,8 +373,15 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
       });
       return;
     }
+
     const requestId = BigInt(message.requestId);
-    const allowed = await canJoinRequestRoom(socket.userId!, socket.role!, requestId);
+
+    const allowed = await canJoinRequestRoom(
+      socket.userId!,
+      socket.role!,
+      requestId,
+    );
+
     if (!allowed) {
       send(socket, {
         type: 'error',
@@ -292,14 +390,19 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
       });
       return;
     }
+
     const room = `requests:${requestId}`;
     joinRoom(socket, room);
+
     send(socket, { type: 'subscribed', room });
     return;
   }
 
   if (message.type === 'unsubscribe_request') {
-    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
+    if (
+      typeof message.requestId !== 'string' ||
+      !/^[1-9]\d{0,17}$/.test(message.requestId)
+    ) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -307,16 +410,21 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
       });
       return;
     }
+
     const room = `requests:${message.requestId}`;
     leaveRoom(socket, room);
+
     send(socket, { type: 'unsubscribed', room });
     return;
   }
 
-  // Chat por solicitud (API-35). Sala distinta de requests:<id>: esa admite a técnicos que solo
-  // recibieron el aviso, y el chat debe ser únicamente de quien participa en la solicitud.
+  // Chat por solicitud (API-35).
+  // La sala del chat es independiente de requests:<id>.
   if (message.type === 'subscribe_chat') {
-    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
+    if (
+      typeof message.requestId !== 'string' ||
+      !/^[1-9]\d{0,17}$/.test(message.requestId)
+    ) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -324,8 +432,15 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
       });
       return;
     }
+
     const requestId = BigInt(message.requestId);
-    const allowed = await canAccessChat(socket.userId!, socket.role!, requestId);
+
+    const allowed = await canAccessChat(
+      socket.userId!,
+      socket.role!,
+      requestId,
+    );
+
     if (!allowed) {
       send(socket, {
         type: 'error',
@@ -334,14 +449,19 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
       });
       return;
     }
+
     const room = `chats:${requestId}`;
     joinRoom(socket, room);
+
     send(socket, { type: 'subscribed', room });
     return;
   }
 
   if (message.type === 'unsubscribe_chat') {
-    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
+    if (
+      typeof message.requestId !== 'string' ||
+      !/^[1-9]\d{0,17}$/.test(message.requestId)
+    ) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -349,16 +469,138 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
       });
       return;
     }
+
     const room = `chats:${message.requestId}`;
     leaveRoom(socket, room);
+
     send(socket, { type: 'unsubscribed', room });
     return;
   }
 
-  if (message.type === 'ping') {
-    send(socket, { type: 'pong', timestamp: new Date().toISOString() });
+  // Actualización de ubicación del técnico (tracking).
+  if (
+    message.type === 'technician_location' ||
+    message.type === 'location_update'
+  ) {
+    const normalizedRole = socket.role?.trim().toLowerCase();
+
+    if (
+      normalizedRole !== 'empleado' &&
+      normalizedRole !== 'proveedor'
+    ) {
+      send(socket, {
+        type: 'error',
+        code: 'FORBIDDEN',
+        message: 'Solo los técnicos pueden reportar su ubicación en tiempo real.',
+      });
+      return;
+    }
+
+    const requestIdStr = String(message.requestId ?? '').trim();
+
+    if (!/^[1-9]\d{0,17}$/.test(requestIdStr)) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_REQUEST_ID',
+        message: 'requestId no es válido.',
+      });
+      return;
+    }
+
+    const lat = Number(message.latitude);
+    const lng = Number(message.longitude);
+
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_COORDINATES',
+        message: 'La latitud debe ser un número entre -90 y 90.',
+      });
+      return;
+    }
+
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+      send(socket, {
+        type: 'error',
+        code: 'INVALID_COORDINATES',
+        message: 'La longitud debe ser un número entre -180 y 180.',
+      });
+      return;
+    }
+
+    const heading =
+      typeof message.heading === 'number' &&
+        Number.isFinite(message.heading)
+        ? message.heading
+        : null;
+
+    const speed =
+      typeof message.speed === 'number' &&
+        Number.isFinite(message.speed)
+        ? message.speed
+        : null;
+
+    const timestamp =
+      typeof message.timestamp === 'string'
+        ? message.timestamp
+        : undefined;
+
+    try {
+      const { location, routeEta } =
+        await trackingService.recordTechnicianLocation(
+          requestIdStr,
+          socket.userId!,
+          {
+            latitude: lat,
+            longitude: lng,
+            heading,
+            speed,
+            timestamp,
+          },
+        );
+
+      send(socket, {
+        type: 'location_recorded',
+        requestId: requestIdStr,
+        location,
+        eta: routeEta
+          ? {
+            duration_seconds: routeEta.duration_seconds,
+            distance_meters: routeEta.distance_meters,
+            eta_timestamp: routeEta.eta_timestamp,
+            polyline: routeEta.polyline,
+            geometry: routeEta.geometry,
+            is_fallback: routeEta.is_fallback,
+          }
+          : null,
+      });
+    } catch (err: unknown) {
+      const errMessage =
+        err instanceof Error
+          ? err.message
+          : 'No fue posible registrar la ubicación.';
+
+      const code =
+        (err as { code?: string })?.code || 'LOCATION_UPDATE_FAILED';
+
+      send(socket, {
+        type: 'error',
+        code,
+        message: errMessage,
+      });
+    }
+
     return;
   }
+
+  if (message.type === 'ping') {
+    send(socket, {
+      type: 'pong',
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   send(socket, {
     type: 'error',
     code: 'UNKNOWN_MESSAGE',
@@ -368,50 +610,73 @@ async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<
 
 export function attachWebSocketServer(server: Server): WebSocketServer {
   if (websocketServer) return websocketServer;
-  websocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
+
+  websocketServer = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_MESSAGE_BYTES,
+  });
 
   server.on('upgrade', (request: IncomingMessage, socket, head) => {
-    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    const pathname = new URL(
+      request.url ?? '/',
+      'http://localhost',
+    ).pathname;
+
     if (pathname !== WS_PATH) {
       socket.destroy();
       return;
     }
-    websocketServer!.handleUpgrade(request, socket, head, (websocket) => {
-      websocketServer!.emit('connection', websocket, request);
-    });
+
+    websocketServer!.handleUpgrade(
+      request,
+      socket,
+      head,
+      (websocket) => {
+        websocketServer!.emit('connection', websocket, request);
+      },
+    );
   });
 
-  // Sin latido del servidor, un teléfono que pasa a segundo plano deja un socket "abierto" hasta
-  // que el TCP expira. Eso haría creer que la app sigue conectada y no se enviaría el push.
+  // Heartbeat para detectar conexiones que dejaron de responder.
   heartbeatTimer = setInterval(() => {
     for (const socket of sockets) {
       if (socket.isAlive === false) {
         socket.terminate();
         continue;
       }
+
       socket.isAlive = false;
       socket.ping();
     }
   }, HEARTBEAT_INTERVAL_MS);
+
   heartbeatTimer.unref();
 
   websocketServer.on('connection', (websocket) => {
     const socket = websocket as AuthenticatedSocket;
+
     socket.rooms = new Set();
     socket.isAlive = true;
+
     socket.on('pong', () => {
       socket.isAlive = true;
     });
+
     sockets.add(socket);
+
     socket.authTimer = setTimeout(() => {
-      if (!socket.authenticated) socket.close(1008, 'Tiempo de autenticación agotado');
+      if (!socket.authenticated) {
+        socket.close(1008, 'Tiempo de autenticación agotado');
+      }
     }, AUTH_TIMEOUT_MS);
+
     socket.on('message', (data) => {
       const raw = Buffer.isBuffer(data)
         ? data
         : Array.isArray(data)
           ? Buffer.concat(data)
           : Buffer.from(data as ArrayBuffer);
+
       void handleMessage(socket, raw).catch(() => {
         send(socket, {
           type: 'error',
@@ -420,15 +685,21 @@ export function attachWebSocketServer(server: Server): WebSocketServer {
         });
       });
     });
+
     socket.on('close', () => cleanup(socket));
     socket.on('error', () => cleanup(socket));
   });
+
   return websocketServer;
 }
 
-export function publishRealtimeMessage(message: RealTimeMessage): void {
+export function publishRealtimeMessage(
+  message: RealTimeMessage,
+): void {
   const members = rooms.get(message.channel);
+
   if (!members?.size) return;
+
   const payload = JSON.stringify({
     type: 'event',
     event: message.event,
@@ -436,35 +707,59 @@ export function publishRealtimeMessage(message: RealTimeMessage): void {
     data: message.data,
     timestamp: message.timestamp.toISOString(),
   });
+
   for (const socket of members) {
-    if (socket.readyState === WebSocket.OPEN && socket.authenticated) socket.send(payload);
+    if (
+      socket.readyState === WebSocket.OPEN &&
+      socket.authenticated
+    ) {
+      socket.send(payload);
+    }
   }
 }
 
 /** Indica si el usuario tiene al menos un socket autenticado y abierto (app en primer plano). */
 export function hasActiveConnection(userId: string): boolean {
   const members = rooms.get(`users:${userId}`);
+
   if (!members) return false;
+
   for (const socket of members) {
-    if (socket.authenticated && socket.readyState === WebSocket.OPEN) return true;
+    if (
+      socket.authenticated &&
+      socket.readyState === WebSocket.OPEN
+    ) {
+      return true;
+    }
   }
+
   return false;
 }
 
 export function getWebSocketStats() {
   return {
     connections: sockets.size,
-    authenticatedConnections: [...sockets].filter((socket) => socket.authenticated).length,
+    authenticatedConnections: [...sockets].filter(
+      (socket) => socket.authenticated,
+    ).length,
     rooms: rooms.size,
   };
 }
 
 export async function closeWebSocketServer(): Promise<void> {
   if (!websocketServer) return;
+
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = null;
-  for (const socket of sockets) socket.close(1001, 'Servidor apagándose');
-  await new Promise<void>((resolve) => websocketServer!.close(() => resolve()));
+
+  for (const socket of sockets) {
+    socket.close(1001, 'Servidor apagándose');
+  }
+
+  await new Promise<void>((resolve) =>
+    websocketServer!.close(() => resolve()),
+  );
+
   websocketServer = null;
   rooms.clear();
   sockets.clear();
