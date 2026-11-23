@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793160193625,
+      "tag": "0000_material_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793261738789,
+      "tag": "0001_huge_scarecrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793264079513,
+      "tag": "0002_wild_roulette",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793520762413,
+      "tag": "0003_add_email_verification_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793760206686,
+      "tag": "0004_add_documentacion_incompleta",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793760207686,
+      "tag": "0005_api26_service_request_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793760208686,
+      "tag": "0006_api27_service_request_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793760209686,
+      "tag": "0007_api25_notifications_created_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793760210686,
+      "tag": "0008_api28_emergency_request_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793760211686,
+      "tag": "0009_api20_independent_supplier_employee",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795030109747,
+      "tag": "0010_api10_personal_data_photo",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795330000000,
+      "tag": "0011_api36_price_adjustment_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795330100000,
+      "tag": "0012_api37_service_payments_confirmation",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795330200000,
+      "tag": "0013_api38_income_per_payment",
+      "breakpoints": true
+    }
+  ]
+}

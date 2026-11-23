@@ -1,9 +1,141 @@
-import express, { type Express, type Request, type Response } from 'express';
+import './utils/bigint-serializer.ts';
+import 'dotenv/config';
 
-const app: Express = express();
+import express, { type Request, type Response } from 'express';
+import { createServer } from 'node:http';
+import cors from 'cors';
 
-app.get('/', (req: Request, res: Response) => {
-    res.send('Hello World!');
+import { ENV } from './config/env.ts';
+import { connectRedis } from './config/redis.ts';
+import { requestLogger } from './middlewares/logger.middleware.ts';
+import { errorHandler, notFoundHandler } from './middlewares/error.middleware.ts';
+
+import { apiRouter } from './routes/index.ts';
+import authRoutes from './routes/auth.routes.ts';
+import testAuthRoutes from './routes/auth.test.routes.ts';
+
+import categoriesRoutes from './routes/categories.routes.ts';
+import accountRoutes from './routes/account.routes.ts';
+import passwordRecoveryRoutes from './routes/password-recovery.routes.ts';
+import adminStaffRoutes from './routes/admin-staff.routes.ts';
+import branchRoutes from './routes/branch.routes.ts';
+import portfolioRoutes from './routes/portfolio.routes.ts';
+import supplierDocumentRoutes from './routes/supplier-document.routes.ts';
+import employeeRoutes from './routes/employee.routes.ts';
+import technicianRoutes from './routes/technician.routes.ts';
+import searchRoutes from './routes/search.routes.ts';
+import branchEmployeeRoutes from './routes/branch-employee.routes.ts';
+import serviceRequestRoutes from './routes/service-request-status.routes.ts';
+
+import { swaggerUi, openApiDocument } from './config/swagger.ts';
+import { setupDomainEventObservers } from './events/index.ts';
+import { attachWebSocketServer } from './realtime/websocket.server.ts';
+import { serviceRequestExpirationService } from './services/service-request-expiration.service.ts';
+import { debtReminderService } from './services/debt-reminder.service.ts';
+
+// Inicializar observadores del patrón Observer (Módulos 1 y 5)
+setupDomainEventObservers();
+
+const app = express();
+
+app.disable('x-powered-by');
+
+// Middlewares globales
+app.use(cors({ origin: ENV.CORS_ORIGIN }));
+app.use(express.json({ limit: '20kb' }));
+app.use(requestLogger);
+
+// Ruta base
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({
+    name: 'Fixora API',
+    version: '1.0.0',
+    documentation: '/api/docs',
+    status: 'online',
+  });
 });
 
-app.listen(3000);
+// Estado de la API
+app.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    service: 'Fixora-Api',
+  });
+});
+
+// Documentación Swagger
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+
+// Rutas generales
+app.use('/api', apiRouter);
+
+// Autenticación
+app.use('/api/auth', authRoutes);
+
+//Recuperacion de contrasena
+app.use('/api/auth', passwordRecoveryRoutes);
+
+//Categorias
+app.use('/api/categories', categoriesRoutes);
+
+// Mi cuenta (datos personales, contraseña y direcciones del usuario que inició sesión)
+app.use('/api/me', accountRoutes);
+
+// Sucursales, portafolio, categorías y certificados (API-20)
+app.use('/api/branches', branchRoutes);
+app.use('/api/portfolio', portfolioRoutes);
+app.use('/api/supplier-documents', supplierDocumentRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/technicians', technicianRoutes);
+
+// Búsqueda de proveedores por radio, categoría y filtros (API-23)
+app.use('/api/search', searchRoutes);
+
+//Dar de alta a administrador o Soporte
+app.use('/api/admin', adminStaffRoutes);
+
+// Solicitudes de servicio (API-26 y API-27)
+app.use('/api/service-requests', serviceRequestRoutes);
+
+// Empleados, agenda disponible y sucursales (API-19 y API-27)
+app.use('/api/branches', branchEmployeeRoutes);
+
+// Rutas de pruebas, únicamente fuera de producción
+if (ENV.NODE_ENV !== 'production') {
+  app.use('/api/dev', testAuthRoutes);
+}
+
+// Manejadores globales
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+const port = ENV.PORT;
+const httpServer = createServer(app);
+attachWebSocketServer(httpServer);
+
+async function startServer() {
+  try {
+    connectRedis();
+    void serviceRequestExpirationService.start().catch((error) => {
+      console.error('No se pudo iniciar el worker de expiración:', error);
+    });
+    debtReminderService.start();
+
+    httpServer.listen(port, () => {
+      console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);
+      console.log(`Documentación: http://localhost:${port}/api/docs`);
+      console.log(`WebSocket: ws://localhost:${port}/ws`);
+
+      if (ENV.NODE_ENV !== 'production') {
+        console.log(`Usuarios de prueba: http://localhost:${port}/api/dev/users`);
+      }
+    });
+  } catch (error) {
+    console.error('Error al inicializar Fixora API:', error);
+    process.exitCode = 1;
+  }
+}
+
+startServer();
+
+export default app;
