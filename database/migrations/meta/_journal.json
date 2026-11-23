@@ -92,6 +92,13 @@
       "when": 1795330100000,
       "tag": "0012_api37_service_payments_confirmation",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795330200000,
+      "tag": "0013_api38_income_per_payment",
+      "breakpoints": true
     }
   ]
 }

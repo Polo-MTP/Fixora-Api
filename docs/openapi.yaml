@@ -3535,7 +3535,8 @@ paths:
       summary: 'Confirmar que se recibió el pago (proveedor)'
       description: |
         El técnico asignado, el dueño o el gerente de la sucursal confirma el cobro. Al quedar pagado
-        todo, los ajustes de precio aprobados pasan a `pagado`. Avisa al cliente.
+        todo, los ajustes de precio aprobados pasan a `pagado`. Registra el ingreso con la comisión
+        de la plataforma (API-38). Avisa al cliente.
       x-estado: implementado
       x-ticket: API-37
       security:
@@ -3731,6 +3732,216 @@ paths:
                                       format: date-time
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/income:
+    get:
+      tags:
+        - Administración
+      summary: 'Ingresos y comisiones'
+      description: |
+        Un ingreso por cada pago confirmado, con bruto, comisión y neto. La comisión se calcula con
+        el porcentaje vigente al confirmarse el pago y se guarda en el ingreso. Con efectivo o
+        transferencia el dinero le llega completo al proveedor, así que la comisión queda
+        `pendiente` hasta que la paga. `totals` suma todo lo filtrado, no solo la página.
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: branch_id
+          in: query
+          schema:
+            type: string
+            pattern: '^[1-9][0-9]{0,17}$'
+        - name: commission_status
+          in: query
+          schema:
+            type: string
+            enum: [pendiente, pagada]
+        - name: from
+          in: query
+          description: Desde esta fecha (AAAA-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: Hasta esta fecha, incluida (AAAA-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Página de ingresos y totales.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/IncomeRecord'
+                      totals:
+                        type: object
+                        properties:
+                          gross_amount:
+                            $ref: '#/components/schemas/Money'
+                          commission_amount:
+                            $ref: '#/components/schemas/Money'
+                          net_amount:
+                            $ref: '#/components/schemas/Money'
+                          commission_pending:
+                            $ref: '#/components/schemas/Money'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/income/{id}/commission-paid:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Administración
+      summary: 'Marcar la comisión como pagada'
+      description: El proveedor pagó la comisión de este ingreso; queda `liquidado`.
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Comisión pagada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/IncomeRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La comisión ya estaba pagada (`COMMISSION_ALREADY_PAID`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/commission-settings:
+    get:
+      tags:
+        - Administración
+      summary: 'Porcentaje de comisión'
+      description: |
+        El porcentaje vigente y los cambios anteriores. Si el Administrador nunca configuró uno, se
+        usa 10 % (`is_default`).
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Porcentaje vigente e historial.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          current:
+                            type: object
+                            properties:
+                              percentage:
+                                type: string
+                                example: '10.00'
+                              effective_from:
+                                type:
+                                  - string
+                                  - 'null'
+                                format: date-time
+                              is_default:
+                                type: boolean
+                          history:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/CommissionSetting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags:
+        - Administración
+      summary: 'Cambiar el porcentaje de comisión'
+      description: Rige desde ahora; los ingresos ya registrados conservan el suyo.
+      x-estado: implementado
+      x-ticket: API-38
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                percentage:
+                  description: De 0 a 50, con máximo 2 decimales.
+                  oneOf:
+                    - type: number
+                    - type: string
+              required:
+                - percentage
+      responses:
+        '201':
+          description: Porcentaje registrado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommissionSetting'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /api/service-requests/{id}/events:
     parameters:
@@ -5811,6 +6022,64 @@ components:
           type: string
           maxLength: 500
 
+    IncomeRecord:
+      type: object
+      description: Ingreso de un pago confirmado con la comisión de la plataforma (API-38).
+      properties:
+        id:
+          type: string
+        branch_id:
+          type: string
+        branch_name:
+          type: string
+        request_id:
+          type: string
+        payment_id:
+          type: string
+        gross_amount:
+          $ref: '#/components/schemas/Money'
+        commission_amount:
+          $ref: '#/components/schemas/Money'
+        net_amount:
+          $ref: '#/components/schemas/Money'
+        currency:
+          type: string
+          example: MXN
+        status:
+          type: string
+          enum: [pendiente, liquidado]
+        commission_status:
+          type: string
+          enum: [pendiente, pagada]
+        commission_paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        settled_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    CommissionSetting:
+      type: object
+      properties:
+        id:
+          type: string
+        percentage:
+          type: string
+          example: '10.00'
+        effective_from:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     PaymentSummary:
       type: object
       description: Cuánto se ha pagado y cuánto falta (API-37).

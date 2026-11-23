@@ -25,6 +25,7 @@ import {
 } from './payment.rules.ts';
 import { centsToAmount, parseAmountToCents, type DbExecutor } from './price-adjustment.rules.ts';
 import { getAccessScope, getServiceRequest } from './service-request-status.service.ts';
+import { recordIncomeForPayment } from './income.rules.ts';
 
 interface Actor {
   id: string;
@@ -270,6 +271,8 @@ export async function respondPayment(
       await loadPayments(tx, requestId),
       request.status === 'completada',
     );
+    // Cada pago confirmado es un ingreso del proveedor con la comisión de la plataforma (API-38).
+    if (decision === 'completado') await recordIncomeForPayment(tx, request, updated, now);
     if (decision === 'completado' && summary.balance_due === '0.00') {
       await tx
         .update(price_adjustment)
