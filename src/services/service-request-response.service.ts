@@ -1,3 +1,4 @@
+
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../config/database.ts';
 import { redis } from '../config/redis.ts';
@@ -5,6 +6,7 @@ import {
   branches,
   branches_categories,
   business_supplier,
+  conversations,
   employees,
   request_dispatches,
   roles,
@@ -35,8 +37,12 @@ interface Actor {
 
 function parseEmployeeId(value: unknown): bigint {
   if (typeof value !== 'string' || !/^[1-9]\d{0,17}$/.test(value)) {
-    throw new BadRequestError('employee_id debe ser un identificador válido.', 'VALIDATION_ERROR');
+    throw new BadRequestError(
+      'employee_id debe ser un identificador válido.',
+      'VALIDATION_ERROR',
+    );
   }
+
   return BigInt(value);
 }
 
@@ -47,6 +53,7 @@ function parseReason(value: unknown): string {
       'VALIDATION_ERROR',
     );
   }
+
   return value.trim();
 }
 
@@ -54,8 +61,14 @@ async function getOwnedBranchIds(actorId: bigint): Promise<bigint[]> {
   const rows = await db
     .select({ id: branches.UniqueID })
     .from(branches)
-    .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
-    .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+    .innerJoin(
+      business_supplier,
+      eq(branches.business_id, business_supplier.business_id),
+    )
+    .innerJoin(
+      suppliers,
+      eq(business_supplier.supplier_id, suppliers.UniqueID),
+    )
     .where(
       and(
         eq(suppliers.user_id, actorId),
@@ -64,7 +77,9 @@ async function getOwnedBranchIds(actorId: bigint): Promise<bigint[]> {
       ),
     );
 
-  return [...new Set(rows.map((row) => row.id.toString()))].map((id) => BigInt(id));
+  return [...new Set(rows.map((row) => row.id.toString()))].map((id) =>
+    BigInt(id),
+  );
 }
 
 async function assertCanManageEmployee(
@@ -73,6 +88,7 @@ async function assertCanManageEmployee(
   branchId: bigint,
 ): Promise<void> {
   const actorId = BigInt(actor.id);
+
   const [employee] = await db
     .select({
       branchId: employees.branch_id,
@@ -93,11 +109,19 @@ async function assertCanManageEmployee(
     )
     .limit(1);
 
-  if (!employee || !employee.active || !employee.canAttend || employee.branchId !== branchId) {
-    throw new NotFoundError('El técnico no pertenece a la sucursal o no está disponible.');
+  if (
+    !employee ||
+    !employee.active ||
+    !employee.canAttend ||
+    employee.branchId !== branchId
+  ) {
+    throw new NotFoundError(
+      'El técnico no pertenece a la sucursal o no está disponible.',
+    );
   }
 
   const role = actor.role.trim().toLowerCase();
+
   if (role === 'empleado') {
     if (employee.userId !== actorId) {
       throw new ForbiddenError(
@@ -105,6 +129,7 @@ async function assertCanManageEmployee(
         'INSUFFICIENT_PERMISSIONS',
       );
     }
+
     return;
   }
 
@@ -116,23 +141,38 @@ async function assertCanManageEmployee(
   }
 
   const branchIds = await getOwnedBranchIds(actorId);
-  if (!branchIds.some((id) => id === branchId)) throw new NotFoundError();
+
+  if (!branchIds.some((id) => id === branchId)) {
+    throw new NotFoundError();
+  }
 }
 
-export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawBody: unknown) {
+export async function acceptServiceRequest(
+  requestId: bigint,
+  actor: Actor,
+  rawBody: unknown,
+) {
   if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
-    throw new BadRequestError('El cuerpo de la solicitud no es válido.', 'VALIDATION_ERROR');
+    throw new BadRequestError(
+      'El cuerpo de la solicitud no es válido.',
+      'VALIDATION_ERROR',
+    );
   }
 
   const body = rawBody as Record<string, unknown>;
   const allowed = ['employee_id', 'latitude', 'longitude'];
   const unknown = Object.keys(body).filter((key) => !allowed.includes(key));
+
   if (unknown.length) {
-    throw new BadRequestError(`Campos no permitidos: ${unknown.join(', ')}.`, 'VALIDATION_ERROR');
+    throw new BadRequestError(
+      `Campos no permitidos: ${unknown.join(', ')}.`,
+      'VALIDATION_ERROR',
+    );
   }
 
   if (body.latitude !== undefined) {
     const lat = Number(body.latitude);
+
     if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
       throw new BadRequestError(
         'La latitud debe ser un número entre -90 y 90.',
@@ -140,8 +180,10 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
       );
     }
   }
+
   if (body.longitude !== undefined) {
     const lng = Number(body.longitude);
+
     if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
       throw new BadRequestError(
         'La longitud debe ser un número entre -180 y 180.',
@@ -153,6 +195,7 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
   const employeeId = parseEmployeeId(body.employee_id);
   const actorId = BigInt(actor.id);
   const now = new Date();
+
   let clientId: bigint | null = null;
   let branchId: bigint | null = null;
 
@@ -164,8 +207,14 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
       .for('update')
       .limit(1);
 
-    if (!request) throw new NotFoundError();
-    if (request.status !== 'pendiente' || (request.expires_at && request.expires_at <= now)) {
+    if (!request) {
+      throw new NotFoundError();
+    }
+
+    if (
+      request.status !== 'pendiente' ||
+      (request.expires_at && request.expires_at <= now)
+    ) {
       throw new ConflictError(
         'La solicitud ya no está pendiente, expiró o fue aceptada por otro técnico.',
         'REQUEST_NOT_PENDING',
@@ -186,6 +235,7 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
     if (!employee || !employee.active || !employee.canAttend) {
       throw new NotFoundError('El técnico no existe o no está disponible.');
     }
+
     branchId = employee.branchId;
 
     if (request.is_emergency) {
@@ -202,12 +252,17 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
         .limit(1);
 
       if (!dispatch) {
-        throw new NotFoundError('La solicitud no fue enviada a este técnico o ya respondió.');
+        throw new NotFoundError(
+          'La solicitud no fue enviada a este técnico o ya respondió.',
+        );
       }
     } else {
       if (request.branch_id !== employee.branchId) {
-        throw new NotFoundError('El técnico no pertenece a la sucursal de la solicitud.');
+        throw new NotFoundError(
+          'El técnico no pertenece a la sucursal de la solicitud.',
+        );
       }
+
       if (request.employee_id && request.employee_id !== employeeId) {
         throw new ConflictError(
           'La solicitud ya está asignada a otro técnico.',
@@ -248,21 +303,37 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
         status: 'aceptada',
       })
       .where(
-        and(eq(service_requests.UniqueID, requestId), eq(service_requests.status, 'pendiente')),
+        and(
+          eq(service_requests.UniqueID, requestId),
+          eq(service_requests.status, 'pendiente'),
+        ),
       )
       .returning({ id: service_requests.UniqueID });
 
     if (!updated) {
-      throw new ConflictError('Otro técnico ya aceptó la solicitud.', 'REQUEST_NOT_PENDING');
+      throw new ConflictError(
+        'Otro técnico ya aceptó la solicitud.',
+        'REQUEST_NOT_PENDING',
+      );
     }
+
+    // API-35: crear la conversación al aceptar la solicitud.
+    await tx
+      .insert(conversations)
+      .values({ request_id: requestId })
+      .onConflictDoNothing({ target: conversations.request_id });
 
     if (request.is_emergency) {
       await tx
         .update(request_dispatches)
         .set({ response: 'retirado', responded_at: now })
         .where(
-          and(eq(request_dispatches.request_id, requestId), isNull(request_dispatches.response)),
+          and(
+            eq(request_dispatches.request_id, requestId),
+            isNull(request_dispatches.response),
+          ),
         );
+
       await tx
         .update(request_dispatches)
         .set({ response: 'acepto', responded_at: now })
@@ -302,15 +373,29 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
 
     let acceptLat: string | null = null;
     let acceptLng: string | null = null;
-    if (typeof body.latitude === 'number' && typeof body.longitude === 'number') {
+
+    if (
+      typeof body.latitude === 'number' &&
+      typeof body.longitude === 'number'
+    ) {
       acceptLat = String(body.latitude);
       acceptLng = String(body.longitude);
     } else {
       try {
-        const onlineData = await redis.get(redisKeys.technicianOnline(employeeId));
+        const onlineData = await redis.get(
+          redisKeys.technicianOnline(employeeId),
+        );
+
         if (onlineData) {
-          const parsed = JSON.parse(onlineData) as { latitude?: number; longitude?: number };
-          if (typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
+          const parsed = JSON.parse(onlineData) as {
+            latitude?: number;
+            longitude?: number;
+          };
+
+          if (
+            typeof parsed.latitude === 'number' &&
+            typeof parsed.longitude === 'number'
+          ) {
             acceptLat = String(parsed.latitude);
             acceptLng = String(parsed.longitude);
           }
@@ -329,13 +414,17 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
       longitude: acceptLng,
       created_at: now,
     });
+
     clientId = request.client_id;
   });
 
   try {
     await timerService.cancel(redisKeys.requestTimer(requestId));
   } catch (error) {
-    console.error('[API-30] No se pudo detener el temporizador Redis:', error);
+    console.error(
+      '[API-30] No se pudo detener el temporizador Redis:',
+      error,
+    );
   }
 
   await eventBus.notify(
@@ -354,20 +443,32 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
   return serializeServiceRequestForResponse(requestId);
 }
 
-export async function rejectServiceRequest(requestId: bigint, actor: Actor, rawBody: unknown) {
+export async function rejectServiceRequest(
+  requestId: bigint,
+  actor: Actor,
+  rawBody: unknown,
+) {
   if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
-    throw new BadRequestError('El cuerpo de la solicitud no es válido.', 'VALIDATION_ERROR');
+    throw new BadRequestError(
+      'El cuerpo de la solicitud no es válido.',
+      'VALIDATION_ERROR',
+    );
   }
 
   const body = rawBody as Record<string, unknown>;
   const unknown = Object.keys(body).filter((key) => key !== 'reason');
+
   if (unknown.length) {
-    throw new BadRequestError(`Campos no permitidos: ${unknown.join(', ')}.`, 'VALIDATION_ERROR');
+    throw new BadRequestError(
+      `Campos no permitidos: ${unknown.join(', ')}.`,
+      'VALIDATION_ERROR',
+    );
   }
 
   const reason = parseReason(body.reason);
   const actorId = BigInt(actor.id);
   const now = new Date();
+
   let clientId: bigint | null = null;
   let employeeIds: bigint[] = [];
   let isEmergency = false;
@@ -380,9 +481,18 @@ export async function rejectServiceRequest(requestId: bigint, actor: Actor, rawB
       .for('update')
       .limit(1);
 
-    if (!request) throw new NotFoundError();
-    if (request.status !== 'pendiente' || (request.expires_at && request.expires_at <= now)) {
-      throw new ConflictError('La solicitud ya no está pendiente.', 'REQUEST_NOT_PENDING');
+    if (!request) {
+      throw new NotFoundError();
+    }
+
+    if (
+      request.status !== 'pendiente' ||
+      (request.expires_at && request.expires_at <= now)
+    ) {
+      throw new ConflictError(
+        'La solicitud ya no está pendiente.',
+        'REQUEST_NOT_PENDING',
+      );
     }
 
     isEmergency = request.is_emergency;
@@ -393,18 +503,36 @@ export async function rejectServiceRequest(requestId: bigint, actor: Actor, rawB
 
     if (role === 'empleado') {
       const rows = await tx
-        .select({ id: employees.UniqueID, branchId: employees.branch_id })
+        .select({
+          id: employees.UniqueID,
+          branchId: employees.branch_id,
+        })
         .from(employees)
-        .where(and(eq(employees.user_id, actorId), eq(employees.active, true)));
+        .where(
+          and(
+            eq(employees.user_id, actorId),
+            eq(employees.active, true),
+          ),
+        );
+
       allowedEmployeeIds = rows
-        .filter((row) => request.is_emergency || row.branchId === request.branch_id)
+        .filter(
+          (row) =>
+            request.is_emergency || row.branchId === request.branch_id,
+        )
         .map((row) => row.id);
     } else if (role === 'proveedor') {
       const rows = await tx
         .select({ id: branches.UniqueID })
         .from(branches)
-        .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
-        .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
+        .innerJoin(
+          business_supplier,
+          eq(branches.business_id, business_supplier.business_id),
+        )
+        .innerJoin(
+          suppliers,
+          eq(business_supplier.supplier_id, suppliers.UniqueID),
+        )
         .where(
           and(
             eq(suppliers.user_id, actorId),
@@ -412,22 +540,33 @@ export async function rejectServiceRequest(requestId: bigint, actor: Actor, rawB
             eq(business_supplier.active, true),
           ),
         );
+
       const branchIds = rows.map((row) => row.id);
 
-      if (!request.is_emergency && (!request.branch_id || !branchIds.includes(request.branch_id))) {
+      if (
+        !request.is_emergency &&
+        (!request.branch_id || !branchIds.includes(request.branch_id))
+      ) {
         throw new NotFoundError();
       }
-      if (request.is_emergency && branchIds.length === 0) throw new NotFoundError();
+
+      if (request.is_emergency && branchIds.length === 0) {
+        throw new NotFoundError();
+      }
 
       const employeeRows = await tx
         .select({ id: employees.UniqueID })
         .from(employees)
         .where(
           and(
-            inArray(employees.branch_id, request.is_emergency ? branchIds : [request.branch_id!]),
+            inArray(
+              employees.branch_id,
+              request.is_emergency ? branchIds : [request.branch_id!],
+            ),
             eq(employees.active, true),
           ),
         );
+
       allowedEmployeeIds = employeeRows.map((row) => row.id);
     } else {
       throw new ForbiddenError(
@@ -437,15 +576,22 @@ export async function rejectServiceRequest(requestId: bigint, actor: Actor, rawB
     }
 
     if (!request.is_emergency && request.employee_id) {
-      allowedEmployeeIds = allowedEmployeeIds.filter((id) => id === request.employee_id);
+      allowedEmployeeIds = allowedEmployeeIds.filter(
+        (id) => id === request.employee_id,
+      );
     }
 
     if (!allowedEmployeeIds.length) {
-      throw new NotFoundError('No hay un técnico de tu cuenta asociado a esta solicitud.');
+      throw new NotFoundError(
+        'No hay un técnico de tu cuenta asociado a esta solicitud.',
+      );
     }
 
     const dispatchRows = await tx
-      .select({ id: request_dispatches.UniqueID, employeeId: request_dispatches.employee_id })
+      .select({
+        id: request_dispatches.UniqueID,
+        employeeId: request_dispatches.employee_id,
+      })
       .from(request_dispatches)
       .where(
         and(
@@ -465,12 +611,15 @@ export async function rejectServiceRequest(requestId: bigint, actor: Actor, rawB
             dispatchRows.map((row) => row.id),
           ),
         );
+
       employeeIds = dispatchRows.map((row) => row.employeeId);
     } else if (!request.is_emergency) {
       const employeeId =
-        request.employee_id && allowedEmployeeIds.includes(request.employee_id)
+        request.employee_id &&
+          allowedEmployeeIds.includes(request.employee_id)
           ? request.employee_id
           : allowedEmployeeIds[0]!;
+
       await tx.insert(request_dispatches).values({
         request_id: requestId,
         employee_id: employeeId,
@@ -478,6 +627,7 @@ export async function rejectServiceRequest(requestId: bigint, actor: Actor, rawB
         responded_at: now,
         response: 'rechazo',
       });
+
       employeeIds = [employeeId];
     } else {
       throw new ConflictError(

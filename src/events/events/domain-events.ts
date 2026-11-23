@@ -14,6 +14,8 @@ export const DOMAIN_EVENTS = {
   SUPPLIER_VERIFICATION_CHANGED: 'supplier.verification_changed',
   SUPPLIER_APPLICATION_RESOLVED: 'supplier.application_resolved',
   SUPPLIER_APPLICATION_CREATED: 'supplier.application_created',
+  CHAT_MESSAGE_SENT: 'chat.message_sent',
+  CHAT_MESSAGES_READ: 'chat.messages_read',
 } as const;
 
 export abstract class BaseDomainEvent<T> implements DomainEvent<T> {
@@ -308,5 +310,44 @@ export class SupplierApplicationCreatedEvent extends BaseDomainEvent<SupplierApp
       eventId,
       occurredOn,
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. Chat por solicitud (API-35)
+// ---------------------------------------------------------------------------
+
+export interface ChatMessageSentPayload {
+  requestId: string;
+  conversationId: string;
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  /** Usuarios que deben enterarse del mensaje (la contraparte del remitente). */
+  recipientUserIds: string[];
+  /** Texto corto para el aviso push y el contador de no leídos. */
+  preview: string;
+  hasAttachments: boolean;
+  /** Mensaje ya serializado, tal como lo devuelve la API. */
+  message: Record<string, unknown>;
+}
+
+export class ChatMessageSentEvent extends BaseDomainEvent<ChatMessageSentPayload> {
+  constructor(payload: ChatMessageSentPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.CHAT_MESSAGE_SENT, payload.requestId, payload, eventId, occurredOn);
+  }
+}
+
+export interface ChatMessagesReadPayload {
+  requestId: string;
+  conversationId: string;
+  readerId: string;
+  messageIds: string[];
+  readAt: string;
+}
+
+export class ChatMessagesReadEvent extends BaseDomainEvent<ChatMessagesReadPayload> {
+  constructor(payload: ChatMessagesReadPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.CHAT_MESSAGES_READ, payload.requestId, payload, eventId, occurredOn);
   }
 }
