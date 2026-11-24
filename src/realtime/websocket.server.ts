@@ -1,4 +1,3 @@
-
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
@@ -182,12 +181,7 @@ async function canJoinRequestRoom(
     const assignments = await db
       .select({ id: employees.UniqueID })
       .from(employees)
-      .where(
-        and(
-          eq(employees.user_id, actorId),
-          eq(employees.active, true),
-        ),
-      );
+      .where(and(eq(employees.user_id, actorId), eq(employees.active, true)));
 
     const employeeIds = assignments.map((item) => item.id);
 
@@ -211,11 +205,7 @@ async function canJoinRequestRoom(
       if (dispatch) return true;
     }
 
-    if (
-      normalizedRole === 'gerente' &&
-      assignments.length &&
-      request.branchId !== null
-    ) {
+    if (normalizedRole === 'gerente' && assignments.length && request.branchId !== null) {
       const [branchAssignment] = await db
         .select({ id: employees.UniqueID })
         .from(employees)
@@ -236,14 +226,8 @@ async function canJoinRequestRoom(
     const [ownedBranch] = await db
       .select({ id: branches.UniqueID })
       .from(branches)
-      .innerJoin(
-        business_supplier,
-        eq(branches.business_id, business_supplier.business_id),
-      )
-      .innerJoin(
-        suppliers,
-        eq(business_supplier.supplier_id, suppliers.UniqueID),
-      )
+      .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+      .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
       .where(
         and(
           eq(branches.UniqueID, request.branchId),
@@ -260,10 +244,7 @@ async function canJoinRequestRoom(
   return false;
 }
 
-async function handleMessage(
-  socket: AuthenticatedSocket,
-  raw: Buffer,
-): Promise<void> {
+async function handleMessage(socket: AuthenticatedSocket, raw: Buffer): Promise<void> {
   let message: ClientMessage;
 
   try {
@@ -306,10 +287,7 @@ async function handleMessage(
       socket.sessionCheckTimer = setInterval(() => {
         void authenticate(socket.accessToken!)
           .then((current) => {
-            if (
-              current.userId !== socket.userId ||
-              current.sessionId !== socket.sessionId
-            ) {
+            if (current.userId !== socket.userId || current.sessionId !== socket.sessionId) {
               socket.close(1008, 'Sesión inválida');
             }
           })
@@ -324,8 +302,7 @@ async function handleMessage(
         rooms: [`users:${user.userId}`],
       });
     } catch (error) {
-      const code =
-        error instanceof Error ? error.message : 'AUTHENTICATION_FAILED';
+      const code = error instanceof Error ? error.message : 'AUTHENTICATION_FAILED';
 
       send(socket, {
         type: 'error',
@@ -343,10 +320,7 @@ async function handleMessage(
   try {
     const currentUser = await authenticate(socket.accessToken!);
 
-    if (
-      currentUser.userId !== socket.userId ||
-      currentUser.sessionId !== socket.sessionId
-    ) {
+    if (currentUser.userId !== socket.userId || currentUser.sessionId !== socket.sessionId) {
       throw new Error('INVALID_SESSION');
     }
   } catch {
@@ -362,10 +336,7 @@ async function handleMessage(
 
   // Suscripción a solicitudes para recibir eventos en tiempo real.
   if (message.type === 'subscribe_request') {
-    if (
-      typeof message.requestId !== 'string' ||
-      !/^[1-9]\d{0,17}$/.test(message.requestId)
-    ) {
+    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -376,11 +347,7 @@ async function handleMessage(
 
     const requestId = BigInt(message.requestId);
 
-    const allowed = await canJoinRequestRoom(
-      socket.userId!,
-      socket.role!,
-      requestId,
-    );
+    const allowed = await canJoinRequestRoom(socket.userId!, socket.role!, requestId);
 
     if (!allowed) {
       send(socket, {
@@ -399,10 +366,7 @@ async function handleMessage(
   }
 
   if (message.type === 'unsubscribe_request') {
-    if (
-      typeof message.requestId !== 'string' ||
-      !/^[1-9]\d{0,17}$/.test(message.requestId)
-    ) {
+    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -421,10 +385,7 @@ async function handleMessage(
   // Chat por solicitud (API-35).
   // La sala del chat es independiente de requests:<id>.
   if (message.type === 'subscribe_chat') {
-    if (
-      typeof message.requestId !== 'string' ||
-      !/^[1-9]\d{0,17}$/.test(message.requestId)
-    ) {
+    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -435,11 +396,7 @@ async function handleMessage(
 
     const requestId = BigInt(message.requestId);
 
-    const allowed = await canAccessChat(
-      socket.userId!,
-      socket.role!,
-      requestId,
-    );
+    const allowed = await canAccessChat(socket.userId!, socket.role!, requestId);
 
     if (!allowed) {
       send(socket, {
@@ -458,10 +415,7 @@ async function handleMessage(
   }
 
   if (message.type === 'unsubscribe_chat') {
-    if (
-      typeof message.requestId !== 'string' ||
-      !/^[1-9]\d{0,17}$/.test(message.requestId)
-    ) {
+    if (typeof message.requestId !== 'string' || !/^[1-9]\d{0,17}$/.test(message.requestId)) {
       send(socket, {
         type: 'error',
         code: 'INVALID_REQUEST_ID',
@@ -478,16 +432,10 @@ async function handleMessage(
   }
 
   // Actualización de ubicación del técnico (tracking).
-  if (
-    message.type === 'technician_location' ||
-    message.type === 'location_update'
-  ) {
+  if (message.type === 'technician_location' || message.type === 'location_update') {
     const normalizedRole = socket.role?.trim().toLowerCase();
 
-    if (
-      normalizedRole !== 'empleado' &&
-      normalizedRole !== 'proveedor'
-    ) {
+    if (normalizedRole !== 'empleado' && normalizedRole !== 'proveedor') {
       send(socket, {
         type: 'error',
         code: 'FORBIDDEN',
@@ -529,35 +477,27 @@ async function handleMessage(
     }
 
     const heading =
-      typeof message.heading === 'number' &&
-        Number.isFinite(message.heading)
+      typeof message.heading === 'number' && Number.isFinite(message.heading)
         ? message.heading
         : null;
 
     const speed =
-      typeof message.speed === 'number' &&
-        Number.isFinite(message.speed)
-        ? message.speed
-        : null;
+      typeof message.speed === 'number' && Number.isFinite(message.speed) ? message.speed : null;
 
-    const timestamp =
-      typeof message.timestamp === 'string'
-        ? message.timestamp
-        : undefined;
+    const timestamp = typeof message.timestamp === 'string' ? message.timestamp : undefined;
 
     try {
-      const { location, routeEta } =
-        await trackingService.recordTechnicianLocation(
-          requestIdStr,
-          socket.userId!,
-          {
-            latitude: lat,
-            longitude: lng,
-            heading,
-            speed,
-            timestamp,
-          },
-        );
+      const { location, routeEta } = await trackingService.recordTechnicianLocation(
+        requestIdStr,
+        socket.userId!,
+        {
+          latitude: lat,
+          longitude: lng,
+          heading,
+          speed,
+          timestamp,
+        },
+      );
 
       send(socket, {
         type: 'location_recorded',
@@ -565,23 +505,20 @@ async function handleMessage(
         location,
         eta: routeEta
           ? {
-            duration_seconds: routeEta.duration_seconds,
-            distance_meters: routeEta.distance_meters,
-            eta_timestamp: routeEta.eta_timestamp,
-            polyline: routeEta.polyline,
-            geometry: routeEta.geometry,
-            is_fallback: routeEta.is_fallback,
-          }
+              duration_seconds: routeEta.duration_seconds,
+              distance_meters: routeEta.distance_meters,
+              eta_timestamp: routeEta.eta_timestamp,
+              polyline: routeEta.polyline,
+              geometry: routeEta.geometry,
+              is_fallback: routeEta.is_fallback,
+            }
           : null,
       });
     } catch (err: unknown) {
       const errMessage =
-        err instanceof Error
-          ? err.message
-          : 'No fue posible registrar la ubicación.';
+        err instanceof Error ? err.message : 'No fue posible registrar la ubicación.';
 
-      const code =
-        (err as { code?: string })?.code || 'LOCATION_UPDATE_FAILED';
+      const code = (err as { code?: string })?.code || 'LOCATION_UPDATE_FAILED';
 
       send(socket, {
         type: 'error',
@@ -617,24 +554,16 @@ export function attachWebSocketServer(server: Server): WebSocketServer {
   });
 
   server.on('upgrade', (request: IncomingMessage, socket, head) => {
-    const pathname = new URL(
-      request.url ?? '/',
-      'http://localhost',
-    ).pathname;
+    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
 
     if (pathname !== WS_PATH) {
       socket.destroy();
       return;
     }
 
-    websocketServer!.handleUpgrade(
-      request,
-      socket,
-      head,
-      (websocket) => {
-        websocketServer!.emit('connection', websocket, request);
-      },
-    );
+    websocketServer!.handleUpgrade(request, socket, head, (websocket) => {
+      websocketServer!.emit('connection', websocket, request);
+    });
   });
 
   // Heartbeat para detectar conexiones que dejaron de responder.
@@ -693,9 +622,7 @@ export function attachWebSocketServer(server: Server): WebSocketServer {
   return websocketServer;
 }
 
-export function publishRealtimeMessage(
-  message: RealTimeMessage,
-): void {
+export function publishRealtimeMessage(message: RealTimeMessage): void {
   const members = rooms.get(message.channel);
 
   if (!members?.size) return;
@@ -709,10 +636,7 @@ export function publishRealtimeMessage(
   });
 
   for (const socket of members) {
-    if (
-      socket.readyState === WebSocket.OPEN &&
-      socket.authenticated
-    ) {
+    if (socket.readyState === WebSocket.OPEN && socket.authenticated) {
       socket.send(payload);
     }
   }
@@ -725,10 +649,7 @@ export function hasActiveConnection(userId: string): boolean {
   if (!members) return false;
 
   for (const socket of members) {
-    if (
-      socket.authenticated &&
-      socket.readyState === WebSocket.OPEN
-    ) {
+    if (socket.authenticated && socket.readyState === WebSocket.OPEN) {
       return true;
     }
   }
@@ -739,9 +660,7 @@ export function hasActiveConnection(userId: string): boolean {
 export function getWebSocketStats() {
   return {
     connections: sockets.size,
-    authenticatedConnections: [...sockets].filter(
-      (socket) => socket.authenticated,
-    ).length,
+    authenticatedConnections: [...sockets].filter((socket) => socket.authenticated).length,
     rooms: rooms.size,
   };
 }
@@ -756,9 +675,7 @@ export async function closeWebSocketServer(): Promise<void> {
     socket.close(1001, 'Servidor apagándose');
   }
 
-  await new Promise<void>((resolve) =>
-    websocketServer!.close(() => resolve()),
-  );
+  await new Promise<void>((resolve) => websocketServer!.close(() => resolve()));
 
   websocketServer = null;
   rooms.clear();

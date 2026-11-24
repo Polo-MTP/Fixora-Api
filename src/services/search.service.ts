@@ -9,7 +9,6 @@ import {
   business_supplier,
   employees,
   employee_profiles,
-  reviews,
   supplier_applications,
   suppliers,
 } from '../database/schema/tables.ts';
@@ -141,6 +140,8 @@ export class SearchService {
         businessName: business.name,
         acceptingRequest: branches.accepting_request,
         timezone: branches.timezone,
+        ratingAvg: branches.rating_avg,
+        reviewsCount: branches.reviews_count,
         colony: addresses.colony,
         municipality: addresses.municipality,
         latitude: addresses.latitude,
@@ -217,7 +218,7 @@ export class SearchService {
       .from(branch_schedules)
       .where(inArray(branch_schedules.branch_id, branchIds));
 
-    // 5. Consultar empleados de las sucursales para fotos y reseñas
+    // 5. Consultar empleados de las sucursales para las fotos
     const branchEmployees = await db
       .select({
         id: employees.UniqueID,
@@ -239,26 +240,7 @@ export class SearchService {
             .where(inArray(employee_profiles.employee_id, employeeIds))
         : [];
 
-    // 6. Consultar reseñas públicas agrupadas
-    const allUserIds = Array.from(
-      new Set([
-        ...verifiedBranches.map((b) => b.supplierUserId),
-        ...branchEmployees.map((e) => e.userId),
-      ]),
-    );
-
-    const publicReviews =
-      allUserIds.length > 0
-        ? await db
-            .select({
-              revieweeId: reviews.reviewee_id,
-              rating: reviews.rating,
-            })
-            .from(reviews)
-            .where(and(inArray(reviews.reviewee_id, allUserIds), eq(reviews.status, 'publicada')))
-        : [];
-
-    // 7. Evaluar cada sucursal: distancia, filtro de categoría, disponibilidad y métricas
+    // 6. Evaluar cada sucursal: distancia, filtro de categoría, disponibilidad y métricas
     const matchedItems: BranchSearchResultItem[] = [];
 
     for (const b of verifiedBranches) {
@@ -297,18 +279,10 @@ export class SearchService {
       const isOpenNow = scheduleResult.isOpen;
       if (availableNow && !isOpenNow) continue;
 
-      // Calcular calificación y reseñas
+      // Calificación y reseñas: las mantiene al día RatingObserver al guardarse cada reseña (API-39).
       const branchEmps = branchEmployees.filter((e) => e.branchId === b.id);
-      const relevantUserIds = new Set([b.supplierUserId, ...branchEmps.map((e) => e.userId)]);
-      const reviewsForBranch = publicReviews.filter((r) => relevantUserIds.has(r.revieweeId));
-
-      const reviewsCount = reviewsForBranch.length;
-      const ratingAvg =
-        reviewsCount > 0
-          ? Math.round(
-              (reviewsForBranch.reduce((acc, curr) => acc + curr.rating, 0) / reviewsCount) * 10,
-            ) / 10
-          : 0;
+      const reviewsCount = b.reviewsCount;
+      const ratingAvg = reviewsCount > 0 ? Math.round(Number(b.ratingAvg ?? 0) * 10) / 10 : 0;
 
       if (minRating !== undefined && ratingAvg < minRating) continue;
 
@@ -345,10 +319,10 @@ export class SearchService {
       });
     }
 
-    // 8. Ordenar según el criterio solicitado (API-24 algoritmo de emparejamiento para 'recomendado')
+    // 7. Ordenar según el criterio solicitado (API-24 algoritmo de emparejamiento para 'recomendado')
     const sortedItems = sortSearchResults(matchedItems, sortOption, radiusKm);
 
-    // 9. Aplicar paginación
+    // 8. Aplicar paginación
     const total = sortedItems.length;
     const totalPages = Math.ceil(total / limit);
     const startIndex = (page - 1) * limit;

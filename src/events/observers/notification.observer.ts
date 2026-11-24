@@ -1,4 +1,3 @@
-
 import { and, eq } from 'drizzle-orm';
 import type { Observer } from '../interfaces/observer.interface.ts';
 import type { DomainEvent } from '../interfaces/domain-event.interface.ts';
@@ -132,12 +131,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
       const [employee] = await db
         .select({ userId: employees.user_id })
         .from(employees)
-        .where(
-          and(
-            eq(employees.UniqueID, BigInt(target.employeeId)),
-            eq(employees.active, true),
-          ),
-        )
+        .where(and(eq(employees.UniqueID, BigInt(target.employeeId)), eq(employees.active, true)))
         .limit(1);
 
       if (employee) return [employee.userId.toString()];
@@ -148,24 +142,13 @@ export class NotificationObserver implements Observer<DomainEvent> {
     const staff = await db
       .select({ userId: employees.user_id })
       .from(employees)
-      .where(
-        and(
-          eq(employees.branch_id, branchId),
-          eq(employees.active, true),
-        ),
-      );
+      .where(and(eq(employees.branch_id, branchId), eq(employees.active, true)));
 
     const owners = await db
       .select({ userId: suppliers.user_id })
       .from(branches)
-      .innerJoin(
-        business_supplier,
-        eq(branches.business_id, business_supplier.business_id),
-      )
-      .innerJoin(
-        suppliers,
-        eq(business_supplier.supplier_id, suppliers.UniqueID),
-      )
+      .innerJoin(business_supplier, eq(branches.business_id, business_supplier.business_id))
+      .innerJoin(suppliers, eq(business_supplier.supplier_id, suppliers.UniqueID))
       .where(
         and(
           eq(branches.UniqueID, branchId),
@@ -174,9 +157,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
         ),
       );
 
-    return Array.from(
-      new Set([...staff, ...owners].map((row) => row.userId.toString())),
-    );
+    return Array.from(new Set([...staff, ...owners].map((row) => row.userId.toString())));
   }
 
   private async defaultAdministratorRecipientProvider(): Promise<string[]> {
@@ -185,11 +166,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
       .from(users)
       .innerJoin(roles, eq(users.role_id, roles.UniqueID))
       .where(
-        and(
-          eq(roles.name, 'administrador'),
-          eq(roles.active, true),
-          eq(users.state, 'activo'),
-        ),
+        and(eq(roles.name, 'administrador'), eq(roles.active, true), eq(users.state, 'activo')),
       );
 
     return administrators.map((administrator) => administrator.id.toString());
@@ -213,73 +190,50 @@ export class NotificationObserver implements Observer<DomainEvent> {
     try {
       await this.pushSender(record);
     } catch (error) {
-      console.error(
-        '[NotificationObserver] No fue posible enviar la notificación push:',
-        error,
-      );
+      console.error('[NotificationObserver] No fue posible enviar la notificación push:', error);
     }
   }
 
   public async handle(event: DomainEvent): Promise<void> {
     switch (event.eventType) {
       case DOMAIN_EVENTS.SERVICE_REQUEST_STATUS_CHANGED:
-        await this.handleServiceRequest(
-          event.payload as ServiceRequestStatusChangedPayload,
-        );
+        await this.handleServiceRequest(event.payload as ServiceRequestStatusChangedPayload);
         break;
 
       case DOMAIN_EVENTS.SERVICE_REQUEST_DISPATCHED:
-        await this.handleServiceRequestDispatched(
-          event.payload as ServiceRequestDispatchedPayload,
-        );
+        await this.handleServiceRequestDispatched(event.payload as ServiceRequestDispatchedPayload);
         break;
 
       case DOMAIN_EVENTS.SERVICE_REQUEST_REJECTED:
-        await this.handleServiceRequestRejected(
-          event.payload as ServiceRequestRejectedPayload,
-        );
+        await this.handleServiceRequestRejected(event.payload as ServiceRequestRejectedPayload);
         break;
 
       case DOMAIN_EVENTS.PRICE_ADJUSTMENT_PROPOSED:
-        await this.handlePriceAdjustmentProposed(
-          event.payload as PriceAdjustmentProposedPayload,
-        );
+        await this.handlePriceAdjustmentProposed(event.payload as PriceAdjustmentProposedPayload);
         break;
 
       case DOMAIN_EVENTS.PRICE_ADJUSTMENT_RESPONDED:
-        await this.handlePriceAdjustmentResponded(
-          event.payload as PriceAdjustmentRespondedPayload,
-        );
+        await this.handlePriceAdjustmentResponded(event.payload as PriceAdjustmentRespondedPayload);
         break;
 
       case DOMAIN_EVENTS.PAYMENT_REGISTERED:
-        await this.handlePaymentRegistered(
-          event.payload as PaymentRegisteredPayload,
-        );
+        await this.handlePaymentRegistered(event.payload as PaymentRegisteredPayload);
         break;
 
       case DOMAIN_EVENTS.PAYMENT_RESPONDED:
-        await this.handlePaymentResponded(
-          event.payload as PaymentRespondedPayload,
-        );
+        await this.handlePaymentResponded(event.payload as PaymentRespondedPayload);
         break;
 
       case DOMAIN_EVENTS.DEBT_REMINDER:
-        await this.handleDebtReminder(
-          event.payload as DebtReminderPayload,
-        );
+        await this.handleDebtReminder(event.payload as DebtReminderPayload);
         break;
 
       case DOMAIN_EVENTS.REPORT_STATUS_CHANGED:
-        await this.handleReport(
-          event.payload as ReportStatusChangedPayload,
-        );
+        await this.handleReport(event.payload as ReportStatusChangedPayload);
         break;
 
       case DOMAIN_EVENTS.SUPPLIER_VERIFICATION_CHANGED:
-        await this.handleSupplierVerification(
-          event.payload as SupplierVerificationPayload,
-        );
+        await this.handleSupplierVerification(event.payload as SupplierVerificationPayload);
         break;
 
       case DOMAIN_EVENTS.SUPPLIER_APPLICATION_RESOLVED:
@@ -295,9 +249,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
         break;
 
       case DOMAIN_EVENTS.CHAT_MESSAGE_SENT:
-        await this.handleChatMessage(
-          event.payload as ChatMessageSentPayload,
-        );
+        await this.handleChatMessage(event.payload as ChatMessageSentPayload);
         break;
 
       default:
@@ -305,9 +257,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
     }
   }
 
-  private async handleServiceRequest(
-    payload: ServiceRequestStatusChangedPayload,
-  ): Promise<void> {
+  private async handleServiceRequest(payload: ServiceRequestStatusChangedPayload): Promise<void> {
     const { requestId, fromStatus, toStatus, clientId, reason } = payload;
 
     // La creación inicial (null -> pendiente) no se le notifica al propio cliente;
@@ -315,11 +265,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
     // La de emergencia avisa en el despacho.
     if (fromStatus === null) {
       if (toStatus === 'pendiente' && payload.branchId) {
-        await this.notifyIncomingRequest(
-          requestId,
-          payload.employeeId ?? null,
-          payload.branchId,
-        );
+        await this.notifyIncomingRequest(requestId, payload.employeeId ?? null, payload.branchId);
       }
 
       return;
@@ -337,8 +283,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
     } else if (toStatus === 'llegado') {
       message = 'El técnico ha llegado a tu domicilio.';
     } else if (toStatus === 'completada') {
-      message =
-        'Tu servicio ha sido marcado como completado. ¡No olvides calificar la atención!';
+      message = 'Tu servicio ha sido marcado como completado. ¡No olvides calificar la atención!';
     } else if (toStatus === 'cancelada') {
       message = `Tu solicitud fue cancelada${reason ? ': ' + reason : '.'}`;
     } else if (toStatus === 'expirada') {
@@ -426,12 +371,8 @@ export class NotificationObserver implements Observer<DomainEvent> {
       payload.technicianUserIds.map((userId) =>
         this.dispatch({
           userId,
-          type: approved
-            ? 'ajuste_precio_aprobado'
-            : 'ajuste_precio_rechazado',
-          title: approved
-            ? 'El cliente aprobó el ajuste'
-            : 'El cliente rechazó el ajuste',
+          type: approved ? 'ajuste_precio_aprobado' : 'ajuste_precio_rechazado',
+          title: approved ? 'El cliente aprobó el ajuste' : 'El cliente rechazó el ajuste',
           message: `El ajuste de $${payload.amount} de la solicitud #${payload.requestId} fue ${payload.decision}.`,
           entityType: 'service_request',
           entityId: payload.requestId,
@@ -441,13 +382,8 @@ export class NotificationObserver implements Observer<DomainEvent> {
   }
 
   /** El proveedor debe confirmar que recibió el pago (API-37). */
-  private async handlePaymentRegistered(
-    payload: PaymentRegisteredPayload,
-  ): Promise<void> {
-    const method =
-      payload.method === 'transferencia'
-        ? 'por transferencia'
-        : 'en efectivo';
+  private async handlePaymentRegistered(payload: PaymentRegisteredPayload): Promise<void> {
+    const method = payload.method === 'transferencia' ? 'por transferencia' : 'en efectivo';
 
     await Promise.all(
       payload.providerUserIds.map((userId) =>
@@ -463,9 +399,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
     );
   }
 
-  private async handlePaymentResponded(
-    payload: PaymentRespondedPayload,
-  ): Promise<void> {
+  private async handlePaymentResponded(payload: PaymentRespondedPayload): Promise<void> {
     const confirmed = payload.decision === 'completado';
     const pending = payload.balanceDue !== '0.00';
 
@@ -482,18 +416,14 @@ export class NotificationObserver implements Observer<DomainEvent> {
     await this.dispatch({
       userId: payload.clientId,
       type: confirmed ? 'pago_confirmado' : 'pago_rechazado',
-      title: confirmed
-        ? 'Pago confirmado'
-        : 'El proveedor no recibió tu pago',
+      title: confirmed ? 'Pago confirmado' : 'El proveedor no recibió tu pago',
       message,
       entityType: 'service_request',
       entityId: payload.requestId,
     });
   }
 
-  private async handleDebtReminder(
-    payload: DebtReminderPayload,
-  ): Promise<void> {
+  private async handleDebtReminder(payload: DebtReminderPayload): Promise<void> {
     await this.dispatch({
       userId: payload.clientId,
       type: 'recordatorio_adeudo',
@@ -522,9 +452,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
     );
   }
 
-  private async handleReport(
-    payload: ReportStatusChangedPayload,
-  ): Promise<void> {
+  private async handleReport(payload: ReportStatusChangedPayload): Promise<void> {
     const { reportId, reporterId, toStatus, resolutionType } = payload;
 
     let message = `Tu reporte #${reportId} ha cambiado de estado a "${toStatus}".`;
@@ -546,17 +474,8 @@ export class NotificationObserver implements Observer<DomainEvent> {
     await this.persister(record);
   }
 
-  private async handleSupplierVerification(
-    payload: SupplierVerificationPayload,
-  ): Promise<void> {
-    const {
-      supplierId,
-      userId,
-      result,
-      comment,
-      documentId,
-      documentName,
-    } = payload;
+  private async handleSupplierVerification(payload: SupplierVerificationPayload): Promise<void> {
+    const { supplierId, userId, result, comment, documentId, documentName } = payload;
 
     if (documentId) {
       const name = documentName ?? `#${documentId}`;
@@ -571,10 +490,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
       await this.dispatch({
         userId,
         type: 'revision_documento_proveedor',
-        title:
-          result === 'aprobado'
-            ? 'Verificación Aprobada'
-            : `Revisión de documento: ${name}`,
+        title: result === 'aprobado' ? 'Verificación Aprobada' : `Revisión de documento: ${name}`,
         message,
         entityType: 'supplier_document',
         entityId: documentId,
@@ -627,8 +543,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
   private async handleSupplierApplicationCreated(
     payload: SupplierApplicationCreatedPayload,
   ): Promise<void> {
-    const administratorIds =
-      await this.administratorRecipientProvider();
+    const administratorIds = await this.administratorRecipientProvider();
 
     const recordBase = {
       type: 'nueva_solicitud_proveedor',
@@ -651,9 +566,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
    * conectada: con la app abierta ya lo recibe por WebSocket. No se guarda en el centro de
    * notificaciones para no llenarlo con un registro por mensaje.
    */
-  private async handleChatMessage(
-    payload: ChatMessageSentPayload,
-  ): Promise<void> {
+  private async handleChatMessage(payload: ChatMessageSentPayload): Promise<void> {
     for (const userId of payload.recipientUserIds) {
       try {
         if (await this.presenceChecker(userId)) continue;
@@ -670,10 +583,7 @@ export class NotificationObserver implements Observer<DomainEvent> {
         this.remember(record);
         await this.pushSender(record);
       } catch (error) {
-        console.error(
-          '[NotificationObserver] No fue posible enviar el push del chat:',
-          error,
-        );
+        console.error('[NotificationObserver] No fue posible enviar el push del chat:', error);
       }
     }
   }

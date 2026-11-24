@@ -7,6 +7,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 ## 1. Visión General de la Arquitectura
 
 ### 1.1 Stack Tecnológico
+
 - **Entorno y Lenguaje:** Node.js v20+ con TypeScript (`tsx` para ejecución y `tsc` para compilación).
 - **Framework Web:** Express v5 (`express@^5.2.1`).
 - **Base de Datos Relacional:** PostgreSQL gestionado a través de **Drizzle ORM** (`drizzle-orm@^0.45.4`).
@@ -19,6 +20,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 - **Contenedores:** Docker Compose para Redis local (`redis-data` en `127.0.0.1:6379`).
 
 ### 1.2 Patrones de Diseño
+
 1. **Patrón Observer (Event-Driven Domain Architecture):**
    - Implementado en `src/events/`. Desacopla la lógica de negocio de los efectos secundarios.
    - Observadores activos:
@@ -40,6 +42,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 ## 2. Seguridad, Autenticación y Roles
 
 ### 2.1 Modelo de Roles
+
 - `cliente`: Usuario final que solicita servicios técnicos.
 - `proveedor`: Titular o dueño de una empresa o negocio independiente de servicios.
 - `gerente`: Responsable de sucursal que administra personal técnico y asignación de órdenes.
@@ -48,6 +51,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 - `soporte`: Personal interno enfocado en atención de reportes e incidencias.
 
 ### 2.2 Tokens y Sesiones
+
 - **Access Token:** JWT firmado con algoritmo simétrico (`HS256`), duración de 15 minutos, con emisor `fixora-api` y audiencia `fixora-client`.
 - **Refresh Token:** Token opaco de 64 caracteres criptográficos guardado en PostgreSQL (`sessions`), con rotación automática y expiración a los 30 días.
 - **Protección de Sesión:** Invalida automáticamente la sesión al cambiar contraseña o al invocar `/logout`.
@@ -55,6 +59,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 ### 2.3 Estructura Estándar de Respuestas
 
 #### Respuesta Exitosa (200 OK / 201 Created)
+
 ```json
 {
   "success": true,
@@ -65,6 +70,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 ```
 
 #### Respuesta de Error (400, 401, 403, 404, 409, 413, 500)
+
 ```json
 {
   "error": "CODIGO_ERROR_SEMANTICO",
@@ -87,6 +93,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 ### MÓDULO 1: ESTADO DEL SISTEMA (HEALTH & DOCS)
 
 #### 1.1 Información Base de la API
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/`
 - **Autenticación:** Pública (No requiere token).
@@ -101,6 +108,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   ```
 
 #### 1.2 Verificación Simple de Vida
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/health`
 - **Autenticación:** Pública.
@@ -113,6 +121,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   ```
 
 #### 1.3 Estado Detallado del Sistema
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/health`
 - **Autenticación:** Pública.
@@ -138,20 +147,21 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 ### MÓDULO 2: AUTENTICACIÓN Y REGISTRO (`/api/auth`)
 
 #### 2.1 Registro de Cliente
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/register`
 - **Autenticación:** Pública.
 - **Headers:** `Content-Type: application/json`
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción / Validaciones |
-  | :--- | :--- | :---: | :--- |
-  | `email` | `string` | Sí | Correo electrónico válido (máx. 255 car.). |
-  | `password` | `string` | Sí | Mínimo 8 caracteres, máximo 72 bytes. |
-  | `name` | `string` | Sí | Nombre del cliente (máx. 100 car.). |
-  | `lastname_p` | `string` | Sí | Apellido paterno (máx. 100 car.). |
-  | `lastname_m` | `string` | No | Apellido materno (máx. 100 car.). |
-  | `birth_date` | `string` | No | Formato `YYYY-MM-DD` (fecha válida pasada). |
-  | `phone` | `string` | No | Teléfono de contacto (máx. 30 car.). |
+  | Campo        | Tipo     | Obligatorio | Descripción / Validaciones                  |
+  | :----------- | :------- | :---------: | :------------------------------------------ |
+  | `email`      | `string` |     Sí      | Correo electrónico válido (máx. 255 car.).  |
+  | `password`   | `string` |     Sí      | Mínimo 8 caracteres, máximo 72 bytes.       |
+  | `name`       | `string` |     Sí      | Nombre del cliente (máx. 100 car.).         |
+  | `lastname_p` | `string` |     Sí      | Apellido paterno (máx. 100 car.).           |
+  | `lastname_m` | `string` |     No      | Apellido materno (máx. 100 car.).           |
+  | `birth_date` | `string` |     No      | Formato `YYYY-MM-DD` (fecha válida pasada). |
+  | `phone`      | `string` |     No      | Teléfono de contacto (máx. 30 car.).        |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -179,14 +189,15 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   - `409 USER_ALREADY_EXISTS`: El correo ya se encuentra registrado.
 
 #### 2.2 Verificar Correo Electrónico
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/verify-email`
 - **Autenticación:** Pública.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `email` | `string` | Sí | Correo electrónico registrado. |
-  | `code` | `string` | Sí | Código numérico de 6 dígitos recibido por correo. |
+  | Campo   | Tipo     | Obligatorio | Descripción                                       |
+  | :------ | :------- | :---------: | :------------------------------------------------ |
+  | `email` | `string` |     Sí      | Correo electrónico registrado.                    |
+  | `code`  | `string` |     Sí      | Código numérico de 6 dígitos recibido por correo. |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -208,13 +219,14 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   - `409 USER_ALREADY_VERIFIED`: La cuenta ya estaba activa.
 
 #### 2.3 Reenviar Código de Verificación
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/resend-verification`
 - **Autenticación:** Pública.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `email` | `string` | Sí | Correo del usuario que necesita nuevo código. |
+  | Campo   | Tipo     | Obligatorio | Descripción                                   |
+  | :------ | :------- | :---------: | :-------------------------------------------- |
+  | `email` | `string` |     Sí      | Correo del usuario que necesita nuevo código. |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -232,16 +244,17 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   - `429 RATE_LIMIT_EXCEEDED`: Debe esperar el período de enfriamiento (cooldown) antes de solicitar otro código.
 
 #### 2.4 Iniciar Sesión (Login)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/login`
 - **Autenticación:** Pública.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `email` | `string` | Sí | Correo electrónico de la cuenta. |
-  | `password` | `string` | Sí | Contraseña en texto plano. |
-  | `deviceToken` | `string` | No | Token FCM de dispositivo para notificaciones push móviles. |
-  | `devicePlatform` | `string` | No | Plataforma: `'android'`, `'ios'` o `'web'` (defecto: `'android'`). |
+  | Campo            | Tipo     | Obligatorio | Descripción                                                        |
+  | :--------------- | :------- | :---------: | :----------------------------------------------------------------- |
+  | `email`          | `string` |     Sí      | Correo electrónico de la cuenta.                                   |
+  | `password`       | `string` |     Sí      | Contraseña en texto plano.                                         |
+  | `deviceToken`    | `string` |     No      | Token FCM de dispositivo para notificaciones push móviles.         |
+  | `devicePlatform` | `string` |     No      | Plataforma: `'android'`, `'ios'` o `'web'` (defecto: `'android'`). |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -272,6 +285,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   - `403 ACCOUNT_SUSPENDED`: Cuenta sancionada o suspendida por administración.
 
 #### 2.5 Renovar Tokens (Refresh Session)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/refresh`
 - **Autenticación:** Pública (requiere refreshToken válido en body).
@@ -293,6 +307,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   - `401 INVALID_REFRESH_TOKEN`: Token expirado, revocado o modificado.
 
 #### 2.6 Cerrar Sesión (Logout)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/logout`
 - **Autenticación:** Pública (invalida la sesión del refreshToken provisto).
@@ -316,6 +331,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 ### MÓDULO 3: RECUPERACIÓN DE CONTRASEÑA (`/api/auth`)
 
 #### 3.1 Solicitar Código de Recuperación
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/forgot-password`
 - **Autenticación:** Pública.
@@ -337,15 +353,16 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
   - `429 RATE_LIMIT_EXCEEDED`: Demasiadas solicitudes seguidas.
 
 #### 3.2 Validar Código y Restablecer Contraseña
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/auth/reset-password`
 - **Autenticación:** Pública.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `email` | `string` | Sí | Correo electrónico del usuario. |
-  | `code` | `string` | Sí | Código OTP de 6 dígitos. |
-  | `newPassword` / `new_password` | `string` | Sí | Nueva contraseña (mínimo 8 caracteres). |
+  | Campo                          | Tipo     | Obligatorio | Descripción                             |
+  | :----------------------------- | :------- | :---------: | :-------------------------------------- |
+  | `email`                        | `string` |     Sí      | Correo electrónico del usuario.         |
+  | `code`                         | `string` |     Sí      | Código OTP de 6 dígitos.                |
+  | `newPassword` / `new_password` | `string` |     Sí      | Nueva contraseña (mínimo 8 caracteres). |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -372,6 +389,7 @@ Fixora API es el backend central de la plataforma **Fixora**, un sistema integra
 Todas las rutas de este módulo requieren token JWT en Header: `Authorization: Bearer <accessToken>`.
 
 #### 4.1 Consultar Datos de Mi Cuenta
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/me`
 - **Autenticación:** Requerida (Cualquier rol activo).
@@ -395,17 +413,18 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 4.2 Actualizar Datos Personales
+
 - **Método HTTP:** `PATCH`
 - **Ruta:** `/api/me`
 - **Autenticación:** Requerida.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `name` | `string` | No | Nombre del usuario. |
-  | `lastname_p` | `string` | No | Apellido paterno. |
-  | `lastname_m` | `string` | No | Apellido materno o null. |
-  | `birth_date` | `string` | No | `YYYY-MM-DD` o null. |
-  | `phone` | `string` | No | Teléfono o null. |
+  | Campo        | Tipo     | Obligatorio | Descripción              |
+  | :----------- | :------- | :---------: | :----------------------- |
+  | `name`       | `string` |     No      | Nombre del usuario.      |
+  | `lastname_p` | `string` |     No      | Apellido paterno.        |
+  | `lastname_m` | `string` |     No      | Apellido materno o null. |
+  | `birth_date` | `string` |     No      | `YYYY-MM-DD` o null.     |
+  | `phone`      | `string` |     No      | Teléfono o null.         |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -423,14 +442,15 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 4.3 Cambiar Contraseña
+
 - **Método HTTP:** `PATCH`
 - **Ruta:** `/api/me/password`
 - **Autenticación:** Requerida.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `current_password` | `string` | Sí | Contraseña vigente. |
-  | `new_password` | `string` | Sí | Nueva contraseña (mínimo 8 caracteres). |
+  | Campo              | Tipo     | Obligatorio | Descripción                             |
+  | :----------------- | :------- | :---------: | :-------------------------------------- |
+  | `current_password` | `string` |     Sí      | Contraseña vigente.                     |
+  | `new_password`     | `string` |     Sí      | Nueva contraseña (mínimo 8 caracteres). |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -452,6 +472,7 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   - `400 ACCOUNT_INVALID_PASSWORD`: La contraseña actual no coincide o la nueva no cumple políticas.
 
 #### 4.4 Listar Mis Direcciones
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/me/addresses`
 - **Autenticación:** Requerida.
@@ -483,25 +504,26 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 4.5 Crear Nueva Dirección
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/me/addresses`
 - **Autenticación:** Requerida.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `street` | `string` | Sí | Calle. |
-  | `num_ext` | `string` | Sí | Número exterior. |
-  | `num_int` | `string` | No | Número interior. |
-  | `colony` | `string` | Sí | Colonia o Fraccionamiento. |
-  | `municipality` | `string` | Sí | Municipio / Alcaldía. |
-  | `state` | `string` | Sí | Estado o Provincia. |
-  | `postal_code` | `string` | Sí | Código postal. |
-  | `country` | `string` | No | País (defecto: `'México'`). |
-  | `latitude` | `number` | No | Coordenada latitud (-90 a 90). |
-  | `longitude` | `number` | No | Coordenada longitud (-180 a 180). |
-  | `alias` | `string` | No | Nombre descriptivo (ej. Casa, Oficina). |
-  | `reference` | `string` | No | Referencias visuales para el técnico. |
-  | `is_main` | `boolean` | No | Establecer como principal por defecto. |
+  | Campo          | Tipo      | Obligatorio | Descripción                             |
+  | :------------- | :-------- | :---------: | :-------------------------------------- |
+  | `street`       | `string`  |     Sí      | Calle.                                  |
+  | `num_ext`      | `string`  |     Sí      | Número exterior.                        |
+  | `num_int`      | `string`  |     No      | Número interior.                        |
+  | `colony`       | `string`  |     Sí      | Colonia o Fraccionamiento.              |
+  | `municipality` | `string`  |     Sí      | Municipio / Alcaldía.                   |
+  | `state`        | `string`  |     Sí      | Estado o Provincia.                     |
+  | `postal_code`  | `string`  |     Sí      | Código postal.                          |
+  | `country`      | `string`  |     No      | País (defecto: `'México'`).             |
+  | `latitude`     | `number`  |     No      | Coordenada latitud (-90 a 90).          |
+  | `longitude`    | `number`  |     No      | Coordenada longitud (-180 a 180).       |
+  | `alias`        | `string`  |     No      | Nombre descriptivo (ej. Casa, Oficina). |
+  | `reference`    | `string`  |     No      | Referencias visuales para el técnico.   |
+  | `is_main`      | `boolean` |     No      | Establecer como principal por defecto.  |
 - **Respuesta Exitosa (201 Created):**
   ```json
   {
@@ -512,24 +534,28 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 4.6 Consultar una Dirección Específica
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/me/addresses/:id`
 - **Parámetros de Ruta:** `id` (Identificador BigInt de la dirección).
 - **Autenticación:** Requerida.
 
 #### 4.7 Modificar una Dirección
+
 - **Método HTTP:** `PATCH`
 - **Ruta:** `/api/me/addresses/:id`
 - **Parámetros de Ruta:** `id` (Identificador BigInt de la dirección).
 - **Autenticación:** Requerida.
 
 #### 4.8 Establecer Dirección Principal
+
 - **Método HTTP:** `PATCH`
 - **Ruta:** `/api/me/addresses/:id/main`
 - **Parámetros de Ruta:** `id` (Identificador BigInt de la dirección).
 - **Autenticación:** Requerida.
 
 #### 4.9 Desactivar (Eliminar) Dirección
+
 - **Método HTTP:** `DELETE`
 - **Ruta:** `/api/me/addresses/:id`
 - **Parámetros de Ruta:** `id` (Identificador BigInt de la dirección).
@@ -548,15 +574,16 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
 ### MÓDULO 5: CENTRO DE NOTIFICACIONES (`/api/me/notifications`)
 
 #### 5.1 Listar Mis Notificaciones
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/me/notifications`
 - **Autenticación:** Requerida.
 - **Query Parameters:**
-  | Parámetro | Tipo | Opcional | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `unread` | `boolean` | Sí | Filtrar únicamente no leídas (`true` o `false`). |
-  | `page` | `number` | Sí | Número de página (defecto: 1). |
-  | `limit` | `number` | Sí | Límite por página (1-100, defecto: 20). |
+  | Parámetro | Tipo      | Opcional | Descripción                                      |
+  | :-------- | :-------- | :------: | :----------------------------------------------- |
+  | `unread`  | `boolean` |    Sí    | Filtrar únicamente no leídas (`true` o `false`). |
+  | `page`    | `number`  |    Sí    | Número de página (defecto: 1).                   |
+  | `limit`   | `number`  |    Sí    | Límite por página (1-100, defecto: 20).          |
 - **Respuesta Exitosa (200 OK):**
   ```json
   {
@@ -582,6 +609,7 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 5.2 Marcar Notificación como Leída
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/me/notifications/:id/read`
 - **Parámetros de Ruta:** `id` (Identificador de la notificación).
@@ -595,6 +623,7 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 5.3 Marcar Todas las Notificaciones como Leídas
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/me/notifications/read-all`
 - **Autenticación:** Requerida.
@@ -611,14 +640,15 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
 ### MÓDULO 6: GESTIÓN DE DISPOSITIVOS PUSH FCM (`/api/me/devices`)
 
 #### 6.1 Registrar o Reasignar Token de Dispositivo
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/me/devices`
 - **Autenticación:** Requerida.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `token` | `string` | Sí | Cadena del token de registro proporcionado por FCM. |
-  | `platform` | `string` | No | `'android'`, `'ios'` o `'web'` (defecto: `'android'`). |
+  | Campo      | Tipo     | Obligatorio | Descripción                                            |
+  | :--------- | :------- | :---------: | :----------------------------------------------------- |
+  | `token`    | `string` |     Sí      | Cadena del token de registro proporcionado por FCM.    |
+  | `platform` | `string` |     No      | `'android'`, `'ios'` o `'web'` (defecto: `'android'`). |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -640,12 +670,14 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 6.2 Desactivar Dispositivo por URL Param
+
 - **Método HTTP:** `DELETE`
 - **Ruta:** `/api/me/devices/:token`
 - **Parámetros de Ruta:** `token` (Token FCM).
 - **Autenticación:** Requerida.
 
 #### 6.3 Desactivar Dispositivo por Body
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/me/devices/deactivate`
 - **Autenticación:** Requerida.
@@ -661,6 +693,7 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
 ### MÓDULO 7: CATÁLOGO DE CATEGORÍAS (`/api/categories`)
 
 #### 7.1 Consultar Categorías Públicas
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/categories`
 - **Autenticación:** Pública.
@@ -683,28 +716,31 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 7.2 Consultar Categoría Activa por ID
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/categories/:id`
 - **Autenticación:** Pública.
 
 #### 7.3 [Admin] Consultar Todas las Categorías
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/categories/admin/all`
 - **Autenticación:** Requerida (`administrador`).
 - **Query Parameters:** `search` (Opcional, filtra por coincidencia de nombre).
 
 #### 7.4 [Admin] Crear Nueva Categoría
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/categories`
 - **Autenticación:** Requerida (`administrador`).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `name` | `string` | Sí | Nombre (2 a 150 caracteres). |
-  | `slug` | `string` | No | Slug URL (se autogenera si se omite). |
-  | `icon_key` | `string` | No | Llave del archivo de icono. |
-  | `sort_order` | `number` | No | Orden de despliegue. |
-  | `active` | `boolean` | No | Estado inicial (defecto: `true`). |
+  | Campo        | Tipo      | Obligatorio | Descripción                           |
+  | :----------- | :-------- | :---------: | :------------------------------------ |
+  | `name`       | `string`  |     Sí      | Nombre (2 a 150 caracteres).          |
+  | `slug`       | `string`  |     No      | Slug URL (se autogenera si se omite). |
+  | `icon_key`   | `string`  |     No      | Llave del archivo de icono.           |
+  | `sort_order` | `number`  |     No      | Orden de despliegue.                  |
+  | `active`     | `boolean` |     No      | Estado inicial (defecto: `true`).     |
 - **Respuesta Exitosa (201 Created):**
   ```json
   {
@@ -715,11 +751,13 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 7.5 [Admin] Actualizar Categoría
+
 - **Método HTTP:** `PATCH`
 - **Ruta:** `/api/categories/:id`
 - **Autenticación:** Requerida (`administrador`).
 
 #### 7.6 [Admin] Desactivar Categoría
+
 - **Método HTTP:** `DELETE`
 - **Ruta:** `/api/categories/:id`
 - **Autenticación:** Requerida (`administrador`).
@@ -729,6 +767,7 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
 ### MÓDULO 8: ASISTENTE WEB Y REGISTRO DE PROVEEDORES (`/api/supplier-applications`)
 
 #### 8.1 Catálogo de Documentos Requeridos
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/document-types`
 - **Autenticación:** Pública.
@@ -748,27 +787,28 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 8.2 Enviar Solicitud de Registro de Proveedor
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/supplier-applications`
 - **Autenticación:** Pública (Asistente web de registro).
 - **Headers:** `Content-Type: application/json` o `multipart/form-data` con campo `data`.
 - **Request Body:**
-  | Sección | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :--- | :---: | :--- |
-  | **manager** | `email` | `string` | Sí | Correo del titular de la cuenta. |
-  | | `password` | `string` | Sí | Contraseña para su usuario proveedor. |
-  | | `name` | `string` | Sí | Nombre del titular. |
-  | | `lastname_p` | `string` | Sí | Apellido paterno. |
-  | | `phone` | `string` | No | Teléfono de contacto. |
-  | **general** | `supplier_type` | `string` | Sí | `'independiente'` o `'empresa'`. |
-  | | `rfc` | `string` | No | Registro Federal de Contribuyentes. |
-  | **business** | `name` | `string` | Sí | Razón social o nombre comercial. |
-  | **branches** | Array de sucursales | `object[]` | Sí | Al menos 1 sucursal obligatoria. |
-  | ↳ branch | `name` | `string` | Sí | Nombre de la sucursal matriz/local. |
-  | ↳ branch | `address` | `object` | Sí | Dirección con coordenadas lat/long. |
-  | ↳ branch | `schedules` | `object[]` | Sí | Días (`0` a `6`) y horarios `open_time`/`close_time`. |
-  | ↳ branch | `categories` | `object[]` | Sí | Categorías atendidas con `base_price`. |
-  | **documents** | Array de documentos | `object[]` | No | Documentos iniciales subidos (`file_key`, `type_document_id`). |
+  | Sección       | Campo               | Tipo       | Obligatorio | Descripción                                                    |
+  | :------------ | :------------------ | :--------- | :---------: | :------------------------------------------------------------- |
+  | **manager**   | `email`             | `string`   |     Sí      | Correo del titular de la cuenta.                               |
+  |               | `password`          | `string`   |     Sí      | Contraseña para su usuario proveedor.                          |
+  |               | `name`              | `string`   |     Sí      | Nombre del titular.                                            |
+  |               | `lastname_p`        | `string`   |     Sí      | Apellido paterno.                                              |
+  |               | `phone`             | `string`   |     No      | Teléfono de contacto.                                          |
+  | **general**   | `supplier_type`     | `string`   |     Sí      | `'independiente'` o `'empresa'`.                               |
+  |               | `rfc`               | `string`   |     No      | Registro Federal de Contribuyentes.                            |
+  | **business**  | `name`              | `string`   |     Sí      | Razón social o nombre comercial.                               |
+  | **branches**  | Array de sucursales | `object[]` |     Sí      | Al menos 1 sucursal obligatoria.                               |
+  | ↳ branch      | `name`              | `string`   |     Sí      | Nombre de la sucursal matriz/local.                            |
+  | ↳ branch      | `address`           | `object`   |     Sí      | Dirección con coordenadas lat/long.                            |
+  | ↳ branch      | `schedules`         | `object[]` |     Sí      | Días (`0` a `6`) y horarios `open_time`/`close_time`.          |
+  | ↳ branch      | `categories`        | `object[]` |     Sí      | Categorías atendidas con `base_price`.                         |
+  | **documents** | Array de documentos | `object[]` |     No      | Documentos iniciales subidos (`file_key`, `type_document_id`). |
 - **Respuesta Exitosa (201 Created):**
   ```json
   {
@@ -785,6 +825,7 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 8.3 Consultar Estado de Solicitud de Proveedor
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/supplier-applications/status`
 - **Query Parameters:** `?email=...` o `?application_id=...`
@@ -802,21 +843,23 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
   ```
 
 #### 8.4 [Proveedor] Consultar Mi Solicitud Autenticada
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/supplier-applications/me`
 - **Autenticación:** Requerida (`proveedor`).
 
 #### 8.5 [Proveedor] Reemplazar Documento Rechazado
+
 - **Método HTTP:** `PUT`
 - **Ruta:** `/api/supplier-applications/me/documents/:typeDocumentId` o `/api/supplier-applications/:id/documents/:typeDocumentId`
 - **Autenticación:** Requerida (`proveedor`).
 - **Headers:** `Content-Type: multipart/form-data` o `application/json` con `file_key`.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `file` | Archivo binario | No | Si se envía multipart. |
-  | `file_key` | `string` | No | Si se subió previamente en `/api/files/upload`. |
-  | `due_date` | `string` | No | Fecha de vigencia en formato `YYYY-MM-DD`. |
+  | Campo      | Tipo            | Obligatorio | Descripción                                     |
+  | :--------- | :-------------- | :---------: | :---------------------------------------------- |
+  | `file`     | Archivo binario |     No      | Si se envía multipart.                          |
+  | `file_key` | `string`        |     No      | Si se subió previamente en `/api/files/upload`. |
+  | `due_date` | `string`        |     No      | Fecha de vigencia en formato `YYYY-MM-DD`.      |
 - **Respuesta Exitosa (200 OK):**
   ```json
   {
@@ -833,16 +876,17 @@ Todas las rutas de este módulo requieren token JWT en Header: `Authorization: B
 Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 
 #### 9.1 [Admin] Listar Solicitudes de Registro de Proveedores
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/admin/supplier-applications`
 - **Autenticación:** Requerida (`administrador`).
 - **Query Parameters:**
-  | Parámetro | Tipo | Opcional | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `state` | `string` | Sí | Filtrar por: `pendiente`, `aprobada`, `rechazada`, `documentacion_incompleta`. |
-  | `search` | `string` | Sí | Búsqueda por nombre de negocio o correo. |
-  | `page` | `number` | Sí | Número de página (defecto: 1). |
-  | `limit` | `number` | Sí | Resultados por página (defecto: 20). |
+  | Parámetro | Tipo     | Opcional | Descripción                                                                    |
+  | :-------- | :------- | :------: | :----------------------------------------------------------------------------- |
+  | `state`   | `string` |    Sí    | Filtrar por: `pendiente`, `aprobada`, `rechazada`, `documentacion_incompleta`. |
+  | `search`  | `string` |    Sí    | Búsqueda por nombre de negocio o correo.                                       |
+  | `page`    | `number` |    Sí    | Número de página (defecto: 1).                                                 |
+  | `limit`   | `number` |    Sí    | Resultados por página (defecto: 20).                                           |
 - **Respuesta Exitosa (200 OK):**
   ```json
   {
@@ -854,18 +898,20 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 9.2 [Admin] Consultar Detalle Completo de una Solicitud
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/admin/supplier-applications/:id`
 - **Autenticación:** Requerida (`administrador`).
 
 #### 9.3 [Admin] Revisar Documento de Proveedor
+
 - **Método HTTP:** `PATCH`
 - **Ruta:** `/api/admin/supplier-documents/:id`
 - **Autenticación:** Requerida (`administrador`).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `result` | `string` | Sí | `'aprobado'` o `'rechazado'`. |
+  | Campo     | Tipo     | Obligatorio | Descripción                                                           |
+  | :-------- | :------- | :---------: | :-------------------------------------------------------------------- |
+  | `result`  | `string` |     Sí      | `'aprobado'` o `'rechazado'`.                                         |
   | `comment` | `string` | Condicional | Obligatorio si el resultado es `'rechazado'`. Máximo 1000 caracteres. |
 - **Ejemplo Request Body:**
   ```json
@@ -884,14 +930,15 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 9.4 [Admin] Emitir Resolución de Solicitud de Proveedor
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/admin/supplier-applications/:id/resolution`
 - **Autenticación:** Requerida (`administrador`).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `state` | `string` | Sí | `'aprobada'`, `'rechazada'` o `'documentacion_incompleta'`. |
-  | `comments` | `string` | Condicional | Obligatorio si es rechazada o incompleta. |
+  | Campo      | Tipo     | Obligatorio | Descripción                                                 |
+  | :--------- | :------- | :---------: | :---------------------------------------------------------- |
+  | `state`    | `string` |     Sí      | `'aprobada'`, `'rechazada'` o `'documentacion_incompleta'`. |
+  | `comments` | `string` | Condicional | Obligatorio si es rechazada o incompleta.                   |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -909,20 +956,21 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 9.5 [Admin] Alta de Personal Interno (Staff)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/admin/staff`
 - **Autenticación:** Requerida (`administrador`).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `email` | `string` | Sí | Correo institucional. |
-  | `password` | `string` | Sí | Contraseña segura. |
-  | `name` | `string` | Sí | Nombre. |
-  | `lastname_p` | `string` | Sí | Apellido paterno. |
-  | `lastname_m` | `string` | No | Apellido materno. |
-  | `role` | `string` | Sí | `'administrador'` o `'soporte'`. |
-  | `phone` | `string` | No | Teléfono de contacto. |
-  | `birth_date` | `string` | No | `YYYY-MM-DD`. |
+  | Campo        | Tipo     | Obligatorio | Descripción                      |
+  | :----------- | :------- | :---------: | :------------------------------- |
+  | `email`      | `string` |     Sí      | Correo institucional.            |
+  | `password`   | `string` |     Sí      | Contraseña segura.               |
+  | `name`       | `string` |     Sí      | Nombre.                          |
+  | `lastname_p` | `string` |     Sí      | Apellido paterno.                |
+  | `lastname_m` | `string` |     No      | Apellido materno.                |
+  | `role`       | `string` |     Sí      | `'administrador'` o `'soporte'`. |
+  | `phone`      | `string` |     No      | Teléfono de contacto.            |
+  | `birth_date` | `string` |     No      | `YYYY-MM-DD`.                    |
 - **Respuesta Exitosa (201 Created):**
   ```json
   {
@@ -941,15 +989,16 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 ### MÓDULO 10: SUCURSALES, EMPLEADOS Y DISPONIBILIDAD (`/api/branches`)
 
 #### 10.1 Consultar Disponibilidad de Agenda de una Sucursal
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/branches/:id/availability`
 - **Autenticación:** Requerida.
 - **Parámetros de Ruta:** `id` (ID de la sucursal).
 - **Query Parameters:**
-  | Parámetro | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `category_id` | `string` | Sí | ID de la categoría a consultar. |
-  | `date` | `string` | Sí | Fecha a consultar en formato `YYYY-MM-DD`. |
+  | Parámetro     | Tipo     | Obligatorio | Descripción                                |
+  | :------------ | :------- | :---------: | :----------------------------------------- |
+  | `category_id` | `string` |     Sí      | ID de la categoría a consultar.            |
+  | `date`        | `string` |     Sí      | Fecha a consultar en formato `YYYY-MM-DD`. |
 - **Respuesta Exitosa (200 OK):**
   ```json
   {
@@ -959,14 +1008,13 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
       "branch_id": "1",
       "date": "2026-11-20",
       "duration_minutes": 60,
-      "available_slots": [
-        "09:00", "10:00", "11:00", "15:00", "16:00"
-      ]
+      "available_slots": ["09:00", "10:00", "11:00", "15:00", "16:00"]
     }
   }
   ```
 
 #### 10.2 Listar Empleados de una Sucursal
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/branches/:id/employees`
 - **Autenticación:** Requerida (Gerente o Proveedor dueño).
@@ -989,19 +1037,20 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 10.3 Crear Empleado / Técnico en Sucursal
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/branches/:id/employees`
 - **Autenticación:** Requerida (Gerente o Proveedor dueño).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `email` | `string` | Sí | Correo del nuevo empleado. |
-  | `password` | `string` | Sí | Contraseña inicial. |
-  | `name` | `string` | Sí | Nombre. |
-  | `lastname_p` | `string` | Sí | Apellido paterno. |
-  | `lastname_m` | `string` | No | Apellido materno. |
-  | `phone` | `string` | No | Teléfono. |
-  | `role` | `string` | Sí | `'gerente'` o `'empleado'`. |
+  | Campo        | Tipo     | Obligatorio | Descripción                 |
+  | :----------- | :------- | :---------: | :-------------------------- |
+  | `email`      | `string` |     Sí      | Correo del nuevo empleado.  |
+  | `password`   | `string` |     Sí      | Contraseña inicial.         |
+  | `name`       | `string` |     Sí      | Nombre.                     |
+  | `lastname_p` | `string` |     Sí      | Apellido paterno.           |
+  | `lastname_m` | `string` |     No      | Apellido materno.           |
+  | `phone`      | `string` |     No      | Teléfono.                   |
+  | `role`       | `string` |     Sí      | `'gerente'` o `'empleado'`. |
 - **Respuesta Exitosa (201 Created):**
   ```json
   {
@@ -1016,6 +1065,7 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 ### MÓDULO 11: SOLICITUDES DE SERVICIO (`/api/service-requests`)
 
 #### 11.1 Listar Mis Solicitudes de Servicio
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/service-requests`
 - **Autenticación:** Requerida.
@@ -1024,11 +1074,11 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   - `empleado`: Servicios asignados al técnico.
   - `gerente` o `proveedor`: Servicios de su sucursal / negocio.
 - **Query Parameters:**
-  | Parámetro | Tipo | Opcional | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `status` | `string` | Sí | Filtrar por: `pendiente`, `aceptada`, `agendada`, `en_camino`, `llegado`, `completada`, `cancelada`, `expirada`. |
-  | `page` | `number` | Sí | Página (defecto: 1). |
-  | `limit` | `number` | Sí | Límite por página (1-100, defecto: 20). |
+  | Parámetro | Tipo     | Opcional | Descripción                                                                                                      |
+  | :-------- | :------- | :------: | :--------------------------------------------------------------------------------------------------------------- |
+  | `status`  | `string` |    Sí    | Filtrar por: `pendiente`, `aceptada`, `agendada`, `en_camino`, `llegado`, `completada`, `cancelada`, `expirada`. |
+  | `page`    | `number` |    Sí    | Página (defecto: 1).                                                                                             |
+  | `limit`   | `number` |    Sí    | Límite por página (1-100, defecto: 20).                                                                          |
 - **Respuesta Exitosa (200 OK):**
   ```json
   {
@@ -1040,20 +1090,21 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 11.2 Crear y Enviar Solicitud de Servicio
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/service-requests`
 - **Autenticación:** Requerida (Rol `cliente`).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `client_uuid` | `string` | Sí | UUID idempotente v4 generado por el cliente móvil/web. |
-  | `branch_id` | `string` | Sí | Identificador de la sucursal elegida. |
-  | `category_id` | `string` | Sí | Identificador de la categoría del trabajo. |
-  | `description` | `string` | Sí | Descripción del problema (hasta 2000 car.). |
-  | `address_id` | `string` | Condicional | ID de dirección existente guardada (excluyente con `address`). |
-  | `address` | `object` | Condicional | Objeto dirección nueva (excluyente con `address_id`). |
-  | `attachment_keys` | `string[]` | No | Lista de hasta 5 llaves de fotos previas subidas. |
-  | `scheduled_at` | `string` | No | Fecha/hora ISO si es cita programada; si se omite, es servicio urgente inmediato. |
+  | Campo             | Tipo       | Obligatorio | Descripción                                                                       |
+  | :---------------- | :--------- | :---------: | :-------------------------------------------------------------------------------- |
+  | `client_uuid`     | `string`   |     Sí      | UUID idempotente v4 generado por el cliente móvil/web.                            |
+  | `branch_id`       | `string`   |     Sí      | Identificador de la sucursal elegida.                                             |
+  | `category_id`     | `string`   |     Sí      | Identificador de la categoría del trabajo.                                        |
+  | `description`     | `string`   |     Sí      | Descripción del problema (hasta 2000 car.).                                       |
+  | `address_id`      | `string`   | Condicional | ID de dirección existente guardada (excluyente con `address`).                    |
+  | `address`         | `object`   | Condicional | Objeto dirección nueva (excluyente con `address_id`).                             |
+  | `attachment_keys` | `string[]` |     No      | Lista de hasta 5 llaves de fotos previas subidas.                                 |
+  | `scheduled_at`    | `string`   |     No      | Fecha/hora ISO si es cita programada; si se omite, es servicio urgente inmediato. |
 - **Ejemplo Request Body (Urgente con dirección guardada):**
   ```json
   {
@@ -1079,21 +1130,23 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 11.3 Consultar Detalle de una Solicitud
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/service-requests/:id`
 - **Autenticación:** Requerida (Involucrados: Cliente, Técnico, Gerente o Proveedor).
 
 #### 11.4 Actualizar Estado de una Solicitud (Transición de Ciclo de Vida)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/service-requests/:id/status`
 - **Autenticación:** Requerida (Técnico asignado o Gerente).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `status` | `string` | Sí | Nuevo estado: `'en_camino'`, `'llegado'`, `'completada'`. |
-  | `latitude` | `number` | Sí | Latitud actual del técnico (-90 a 90). |
-  | `longitude` | `number` | Sí | Longitud actual del técnico (-180 a 180). |
-  | `closing_keys` | `string[]` | No | Fotos de evidencia de conclusión (solo admitidas al pasar a `'completada'`). |
+  | Campo          | Tipo       | Obligatorio | Descripción                                                                  |
+  | :------------- | :--------- | :---------: | :--------------------------------------------------------------------------- |
+  | `status`       | `string`   |     Sí      | Nuevo estado: `'en_camino'`, `'llegado'`, `'completada'`.                    |
+  | `latitude`     | `number`   |     Sí      | Latitud actual del técnico (-90 a 90).                                       |
+  | `longitude`    | `number`   |     Sí      | Longitud actual del técnico (-180 a 180).                                    |
+  | `closing_keys` | `string[]` |     No      | Fotos de evidencia de conclusión (solo admitidas al pasar a `'completada'`). |
 - **Ejemplo Request Body (Técnico en camino):**
   ```json
   {
@@ -1115,6 +1168,7 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 11.5 Consultar Bitácora Histórica de Eventos
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/service-requests/:id/events`
 - **Autenticación:** Requerida.
@@ -1143,19 +1197,20 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 11.6 Solicitud de Emergencia y Despacho a Técnicos Cercanos (API-28)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/service-requests/emergency`
 - **Autenticación:** Requerida (Rol `cliente`).
 - **Descripción:** Solo pide la categoría y la ubicación actual. Busca técnicos cercanos disponibles ordenados por proximidad (usando la última posición GPS en Redis GEO o la dirección de su sucursal). Avisa de forma concurrente mediante notificaciones de alta prioridad FCM y canales WebSocket a los técnicos elegibles. Registra cada aviso en `request_dispatches`.
 - **Carrera de aceptación:** El primer técnico que acepta se queda con la solicitud y a los demás se les retira automáticamente.
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `client_uuid` | `string (uuid)` | Sí | Identificador único de idempotencia del cliente. |
-  | `category_id` | `string` | Sí | Identificador de la categoría del servicio requerido. |
-  | `latitude` | `number` | Sí | Latitud actual del cliente (-90 a 90). |
-  | `longitude` | `number` | Sí | Longitud actual del cliente (-180 a 180). |
-  | `description` | `string` | No | Breve descripción del problema (máx. 500 caracteres). |
+  | Campo         | Tipo            | Obligatorio | Descripción                                           |
+  | :------------ | :-------------- | :---------: | :---------------------------------------------------- |
+  | `client_uuid` | `string (uuid)` |     Sí      | Identificador único de idempotencia del cliente.      |
+  | `category_id` | `string`        |     Sí      | Identificador de la categoría del servicio requerido. |
+  | `latitude`    | `number`        |     Sí      | Latitud actual del cliente (-90 a 90).                |
+  | `longitude`   | `number`        |     Sí      | Longitud actual del cliente (-180 a 180).             |
+  | `description` | `string`        |     No      | Breve descripción del problema (máx. 500 caracteres). |
 - **Respuesta Exitosa (201 Created):**
   ```json
   {
@@ -1207,6 +1262,7 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   - `409 NO_TECHNICIANS_AVAILABLE`: No hay técnicos disponibles en el radio de cobertura.
 
 #### 11.7 Aceptar Solicitud de Servicio (Proveedor / Técnico) (API-30)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/service-requests/:id/accept`
 - **Autenticación:** Requerida (Rol `empleado`, `gerente` o `proveedor`).
@@ -1214,6 +1270,7 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 - **Respuesta Exitosa (200 OK):** Detalle de la solicitud en estado `aceptada`.
 
 #### 11.8 Rechazar Solicitud de Servicio (API-30)
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/service-requests/:id/reject`
 - **Autenticación:** Requerida (Rol `empleado`, `gerente` o `proveedor`).
@@ -1225,16 +1282,17 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 ### MÓDULO 12: ALMACENAMIENTO SEGURO DE ARCHIVOS (`/api/files`)
 
 #### 12.1 Subir Archivo
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/files/upload`
 - **Autenticación:** Requerida.
 - **Headers:** `Content-Type: multipart/form-data`
 - **Form Data:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `file` | Binario | Sí | Archivo a subir (JPG, PNG, WEBP, PDF, MP4). Máx. 15MB. |
-  | `category` | `string` | No | `'documents'`, `'photos'` o `'evidences'` (defecto: `'documents'`). |
-  | `is_verification` | `boolean` | No | `true` si es documento sensible de acreditación legal. |
+  | Campo             | Tipo      | Obligatorio | Descripción                                                         |
+  | :---------------- | :-------- | :---------: | :------------------------------------------------------------------ |
+  | `file`            | Binario   |     Sí      | Archivo a subir (JPG, PNG, WEBP, PDF, MP4). Máx. 15MB.              |
+  | `category`        | `string`  |     No      | `'documents'`, `'photos'` o `'evidences'` (defecto: `'documents'`). |
+  | `is_verification` | `boolean` |     No      | `true` si es documento sensible de acreditación legal.              |
 - **Respuesta Exitosa (201 Created):**
   ```json
   {
@@ -1250,15 +1308,16 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 12.2 Generar Enlace Firmado Temporal
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/files/signed-url`
 - **Autenticación:** Requerida (Si el archivo es de verificación legal, solo el `administrador` puede firmarlo).
 - **Request Body:**
-  | Campo | Tipo | Obligatorio | Descripción |
-  | :--- | :--- | :---: | :--- |
-  | `file_key` | `string` | Sí | Llave del archivo devuelta al subirlo. |
-  | `expires_in_minutes` | `number` | No | Vigencia en minutos (defecto: 30 min). |
-  | `disposition` | `string` | No | `'inline'` (previsualizar) o `'attachment'` (forzar descarga). |
+  | Campo                | Tipo     | Obligatorio | Descripción                                                    |
+  | :------------------- | :------- | :---------: | :------------------------------------------------------------- |
+  | `file_key`           | `string` |     Sí      | Llave del archivo devuelta al subirlo.                         |
+  | `expires_in_minutes` | `number` |     No      | Vigencia en minutos (defecto: 30 min).                         |
+  | `disposition`        | `string` |     No      | `'inline'` (previsualizar) o `'attachment'` (forzar descarga). |
 - **Ejemplo Request Body:**
   ```json
   {
@@ -1279,6 +1338,7 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### 12.3 Descargar Archivo Mediante Enlace Firmado
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/files/download`
 - **Autenticación:** Pública (Valida vigencia y firma HMAC en query params).
@@ -1286,12 +1346,14 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 - **Respuesta Exitosa (200 OK):** Stream binario del archivo con `Content-Disposition: attachment`.
 
 #### 12.4 Previsualizar Archivo en Navegador Mediante Enlace Firmado
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/files/view`
 - **Autenticación:** Pública (Valida vigencia y firma HMAC en query params).
 - **Respuesta Exitosa (200 OK):** Stream binario con `Content-Disposition: inline`.
 
 #### 12.5 Eliminar Archivo
+
 - **Método HTTP:** `DELETE`
 - **Ruta:** `/api/files`
 - **Autenticación:** Requerida (Solo el dueño que lo subió o el `administrador`).
@@ -1314,11 +1376,13 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 ### MÓDULO 13: USUARIOS DE SISTEMA (`/api/users`)
 
 #### 13.1 [Admin] Listar Todos los Usuarios
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/users`
 - **Autenticación:** Requerida (`administrador`).
 
 #### 13.2 [Admin] Consultar Usuario por ID
+
 - **Método HTTP:** `GET`
 - **Ruta:** `/api/users/:id`
 - **Autenticación:** Requerida (`administrador`).
@@ -1327,9 +1391,10 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 
 ### MÓDULO 14: ENTORNO DE DESARROLLO Y PRUEBAS (`/api/dev`)
 
-*Deshabilitado en ambiente de producción (`NODE_ENV === 'production'`)*.
+_Deshabilitado en ambiente de producción (`NODE_ENV === 'production'`)_.
 
 #### 14.1 Crear Usuario de Prueba
+
 - **Método HTTP:** `POST`
 - **Ruta:** `/api/dev/users`
 - **Autenticación:** Pública (Solo disponible fuera de producción).
@@ -1357,6 +1422,7 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 ## 4. API en Tiempo Real (WebSocket Server)
 
 ### 4.1 Especificación de Conexión
+
 - **URL Local:** `ws://localhost:3001/ws` (puerto configurable vía `PORT`).
 - **URL Producción:** `wss://api.fixora.com/ws`
 - **Tiempo límite de autenticación:** 5 segundos. Si el cliente no envía el mensaje de autenticación dentro de los primeros 5 segundos tras abrir el socket, la conexión se cierra con código `4401`.
@@ -1364,12 +1430,14 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 ### 4.2 Protocolo de Mensajes Cliente -> Servidor
 
 #### A. Autenticación Inicial
+
 ```json
 {
   "type": "authenticate",
   "token": "<JWT_ACCESS_TOKEN>"
 }
 ```
+
 - **Respuesta Servidor:**
   ```json
   {
@@ -1380,15 +1448,18 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 #### B. Suscribirse a una Solicitud en Curso
+
 ```json
 {
   "type": "subscribe_request",
   "requestId": "52"
 }
 ```
-*Solo admitido si el usuario es cliente titular, técnico asignado o gerente de la sucursal asignada.*
+
+_Solo admitido si el usuario es cliente titular, técnico asignado o gerente de la sucursal asignada._
 
 #### C. Desuscribirse de una Solicitud
+
 ```json
 {
   "type": "unsubscribe_request",
@@ -1397,11 +1468,13 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
 ```
 
 #### D. Keep-Alive / Latencia (Ping)
+
 ```json
 {
   "type": "ping"
 }
 ```
+
 - **Respuesta Servidor:**
   ```json
   {
@@ -1411,7 +1484,9 @@ Todas las rutas de este módulo requieren token JWT y rol `administrador`.
   ```
 
 ### 4.3 Eventos Reactivos Servidor -> Cliente
+
 Cuando se actualiza el estado de una solicitud (ej. técnico en camino o llegado), `RealTimeObserver` emite a la sala `requests:<requestId>`:
+
 ```json
 {
   "type": "event",

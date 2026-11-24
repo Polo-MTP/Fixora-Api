@@ -14,7 +14,6 @@ import {
   personal_data,
   request_attachments,
   request_dispatches,
-  reviews,
   roles,
   service_request_events,
   service_requests,
@@ -30,6 +29,7 @@ import {
 } from '../errors/app-error.ts';
 import { eventBus } from '../events/event-bus.ts';
 import { ServiceRequestStatusChangedEvent } from '../events/events/domain-events.ts';
+import { listClientReviews } from './review.service.ts';
 import { storageService } from './storage.service.ts';
 import { trackingService } from './tracking.service.ts';
 import { isValidServiceRequestTransition } from '../utils/service-request-transitions.ts';
@@ -84,6 +84,9 @@ function parseBigintId(value: string): bigint {
   }
   return BigInt(value);
 }
+
+/** Comentarios del cliente que ve el proveedor al revisar una solicitud. */
+const CLIENT_REVIEWS_PREVIEW = 5;
 
 function publicStatus(status: string): string {
   // Compatibilidad de registros antiguos creados antes de separar En camino y Llegado.
@@ -360,16 +363,13 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     .from(personal_data)
     .where(eq(personal_data.user_id, request.client_id))
     .limit(1);
-  const [rating] = await db
-    .select({ average: sql<string | null>`avg(${reviews.rating})` })
-    .from(reviews)
-    .where(
-      and(
-        eq(reviews.reviewee_id, request.client_id),
-        eq(reviews.direction, 'proveedor_a_cliente'),
-        eq(reviews.status, 'publicada'),
-      ),
-    );
+  // Reputación del cliente (API-39): promedio guardado y últimos comentarios de proveedores.
+  const [clientReputation] = await db
+    .select({ average: users.rating_avg, total: users.reviews_count })
+    .from(users)
+    .where(eq(users.UniqueID, request.client_id))
+    .limit(1);
+  const clientReviews = await listClientReviews(request.client_id, CLIENT_REVIEWS_PREVIEW);
   const [price] = request.branch_id
     ? await db
         .select({ amount: branches_categories.base_price })
@@ -445,7 +445,9 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     technician,
     client: {
       name: client ? `${client.name} ${client.lastname_p}`.trim() : '',
-      rating_avg: normalizeNumber(rating?.average) ?? 0,
+      rating_avg: normalizeNumber(clientReputation?.average) ?? 0,
+      reviews_count: clientReputation?.total ?? 0,
+      reviews: clientReviews,
     },
     address: address
       ? {

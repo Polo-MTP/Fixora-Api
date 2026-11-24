@@ -14,6 +14,7 @@ import {
   integer,
   uniqueIndex,
   index,
+  check,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import {
@@ -62,6 +63,9 @@ export const users = pgTable('users', {
   state: userStateEnum('state').notNull().default('por_verificar'),
   failed_attempts: integer('failed_attempts').notNull().default(0),
   locked_until: timestamp('locked_until'),
+  // Promedio y total de reseñas publicadas que recibió este usuario (API-39).
+  rating_avg: numeric('rating_avg', { precision: 3, scale: 2 }).default('0.00'),
+  reviews_count: integer('reviews_count').notNull().default(0),
 });
 
 export const sessions = pgTable('sessions', {
@@ -619,34 +623,56 @@ export const message_attachments = pgTable(
 // MÓDULO: Reseñas y reportes
 // ============================================================================
 
-export const reviews = pgTable('reviews', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  request_id: bigint('request_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => service_requests.UniqueID),
-  direction: reviewDirectionEnum('direction').notNull(),
-  author_id: bigint('author_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  reviewee_id: bigint('reviewee_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  rating: integer('rating').notNull(),
-  comment: text('comment'),
-  status: reviewStatusEnum('status').notNull().default('publicada'),
-  client_uuid: varchar('client_uuid', { length: 100 }),
-});
+export const reviews = pgTable(
+  'reviews',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    request_id: bigint('request_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => service_requests.UniqueID),
+    direction: reviewDirectionEnum('direction').notNull(),
+    author_id: bigint('author_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    reviewee_id: bigint('reviewee_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    rating: integer('rating').notNull(),
+    comment: text('comment'),
+    status: reviewStatusEnum('status').notNull().default('publicada'),
+    client_uuid: varchar('client_uuid', { length: 100 }),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    // API-39: una reseña por solicitud y por sentido.
+    requestDirectionUnique: uniqueIndex('reviews_request_direction_unique').on(
+      table.request_id,
+      table.direction,
+    ),
+    authorClientUuidUnique: uniqueIndex('reviews_author_client_uuid_unique')
+      .on(table.author_id, table.client_uuid)
+      .where(sql`${table.client_uuid} IS NOT NULL`),
+    revieweeIdx: index('reviews_reviewee_idx').on(table.reviewee_id, table.direction, table.status),
+    ratingRange: check('reviews_rating_range', sql`${table.rating} BETWEEN 1 AND 5`),
+  }),
+);
 
-export const review_attachments = pgTable('review_attachments', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  review_id: bigint('review_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => reviews.UniqueID),
-  storage_key: varchar('storage_key', { length: 500 }).notNull(),
-  mime_type: attachmentMimeTypeEnum('mime_type').notNull(),
-  size_bytes: integer('size_bytes'),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-});
+export const review_attachments = pgTable(
+  'review_attachments',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    review_id: bigint('review_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => reviews.UniqueID),
+    storage_key: varchar('storage_key', { length: 500 }).notNull(),
+    mime_type: attachmentMimeTypeEnum('mime_type').notNull(),
+    size_bytes: integer('size_bytes'),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    reviewIdx: index('review_attachments_review_idx').on(table.review_id),
+  }),
+);
 
 export const reports = pgTable('reports', {
   UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),

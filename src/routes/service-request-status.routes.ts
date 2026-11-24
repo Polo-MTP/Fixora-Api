@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
 
@@ -23,6 +22,10 @@ import {
   markChatReadController,
   sendChatMessageController,
 } from '../controllers/chat.controller.ts';
+import {
+  createReviewController,
+  getRequestReviewsController,
+} from '../controllers/review.controller.ts';
 
 import {
   approvePriceAdjustmentController,
@@ -80,6 +83,10 @@ router.patch('/:id/status', changeServiceRequestStatus);
 router.get('/:id/chat', getChatController);
 router.post('/:id/chat/messages', sendChatMessageController);
 router.post('/:id/chat/read', markChatReadController);
+
+// Reseñas bidireccionales (API-39)
+router.get('/:id/reviews', getRequestReviewsController);
+router.post('/:id/reviews', createReviewController);
 
 // Obtener solicitud individual
 router.get('/:id', getOneServiceRequest);

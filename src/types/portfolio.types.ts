@@ -133,6 +133,25 @@ export interface BranchReviewSummary {
   created_at?: string;
 }
 
+export interface BranchReviewEvidence {
+  mime_type: string;
+  url: string | null;
+}
+
+export interface BranchReviewItem {
+  id: string;
+  rating: number;
+  comment: string | null;
+  author_name: string;
+  created_at: string;
+  evidence: BranchReviewEvidence[];
+}
+
+export interface BranchReviewsPage {
+  items: BranchReviewItem[];
+  pagination: { page: number; limit: number; total: number; total_pages: number };
+}
+
 export interface BranchPublicProfileResponse {
   id: string;
   name: string;
@@ -152,5 +171,8 @@ export interface BranchPublicProfileResponse {
   categories: BranchCategoryResponse[];
   portfolio: PortfolioWorkResponse[];
   certificates: CertificateResponse[];
+  /** Se conserva por compatibilidad: las primeras 5 de `reviews.items`. */
   latest_reviews: BranchReviewSummary[];
+  /** Primera página de reseñas de clientes (API-39); el resto, en GET /api/branches/:id/reviews. */
+  reviews: BranchReviewsPage;
 }
