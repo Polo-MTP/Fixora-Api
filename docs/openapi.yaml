@@ -6756,6 +6756,11 @@ components:
                   type: string
                 color:
                   type: string
+            verified:
+              type: boolean
+              description: >-
+                [API-56] El proveedor de la sucursal tiene su solicitud de alta aprobada; es la
+                misma insignia que `is_verified` de la ficha pública.
         client:
           type: object
           description: Visible para el proveedor.
