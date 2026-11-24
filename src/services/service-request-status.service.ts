@@ -11,6 +11,7 @@ import {
   categories,
   employees,
   employee_profiles,
+  employee_vehicles,
   personal_data,
   request_attachments,
   request_dispatches,
@@ -32,6 +33,7 @@ import { ServiceRequestStatusChangedEvent } from '../events/events/domain-events
 import { listClientReviews } from './review.service.ts';
 import { storageService } from './storage.service.ts';
 import { trackingService } from './tracking.service.ts';
+import { displayName, partiesToShow, type VehicleView } from './active-service.rules.ts';
 import { isValidServiceRequestTransition } from '../utils/service-request-transitions.ts';
 import {
   closePriceForCompletion,
@@ -395,7 +397,14 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     rejected: dispatchRows.filter((row) => row.response === 'rechazo').length,
   };
 
-  let technician: { employee_id: string; name: string; photo_url: string | null } | null = null;
+  // API-55: si ya se aceptó, se muestra la copia guardada al aceptar y no el perfil actual.
+  let technician: {
+    employee_id: string;
+    name: string;
+    photo_url: string | null;
+    vehicle: VehicleView | null;
+  } | null = null;
+  let clientName = displayName(client);
   if (request.employee_id) {
     const [employee] = await db
       .select({ employeeId: employees.UniqueID, userId: employees.user_id })
@@ -413,11 +422,36 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
         .from(employee_profiles)
         .where(eq(employee_profiles.employee_id, employee.employeeId))
         .limit(1);
+      const [vehicle] = await db
+        .select()
+        .from(employee_vehicles)
+        .where(
+          and(
+            eq(employee_vehicles.employee_id, employee.employeeId),
+            eq(employee_vehicles.active, true),
+          ),
+        )
+        .limit(1);
+      const shown = partiesToShow(request, {
+        technicianName: displayName(technicianData),
+        technicianPhotoKey: profile?.photo_key ?? null,
+        vehicle: vehicle
+          ? {
+              plate: vehicle.plate,
+              brand: vehicle.brand,
+              model: vehicle.model,
+              color: vehicle.color,
+            }
+          : null,
+        clientName,
+      });
       technician = {
         employee_id: employee.employeeId.toString(),
-        name: technicianData ? `${technicianData.name} ${technicianData.lastname_p}`.trim() : '',
-        photo_url: signedFileUrl(profile?.photo_key),
+        name: shown.technicianName,
+        photo_url: signedFileUrl(shown.technicianPhotoKey),
+        vehicle: shown.vehicle,
       };
+      clientName = shown.clientName;
     }
   }
 
@@ -444,7 +478,7 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
       : null,
     technician,
     client: {
-      name: client ? `${client.name} ${client.lastname_p}`.trim() : '',
+      name: clientName,
       rating_avg: normalizeNumber(clientReputation?.average) ?? 0,
       reviews_count: clientReputation?.total ?? 0,
       reviews: clientReviews,

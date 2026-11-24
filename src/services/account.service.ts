@@ -15,6 +15,7 @@ import bcrypt from 'bcryptjs';
 import { BadRequestError } from '../errors/app-error.ts';
 import { assertProfilePhotoKey } from './employee-profile.service.ts';
 import { storageService } from './storage.service.ts';
+import { activeServiceLockError, userHasActiveService } from './active-service.rules.ts';
 
 // ============================================================
 // ERRORES DEL MÓDULO
@@ -30,6 +31,17 @@ export class AccountError extends Error {
     this.name = 'AccountError';
     this.statusCode = statusCode;
     this.code = code;
+  }
+}
+
+/**
+ * API-55: el nombre y la foto no se cambian a medio servicio; la otra parte ya los vio al aceptar.
+ * Se responde con el formato de errores de este módulo.
+ */
+async function assertIdentityUnlocked(userId: bigint, what: string) {
+  if (await userHasActiveService(userId)) {
+    const error = activeServiceLockError(what);
+    throw new AccountError(409, error.code, error.message);
   }
 }
 
@@ -270,6 +282,8 @@ export async function getMyAccount(userId: bigint) {
     personal_data: personalData ? personal : null,
     // Enlace firmado a la foto de perfil de la cuenta (API-10), o null si no tiene.
     photo_url: signPhoto(photoKey),
+    // API-55: con un servicio en curso el nombre, la foto y el vehículo no se pueden cambiar.
+    active_service: await userHasActiveService(userId),
   };
 }
 
@@ -299,6 +313,7 @@ export async function updateMyPhoto(userId: bigint, photoKey: unknown) {
   }
   const key = photoKey === null ? null : photoKey.trim();
   if (key !== null) assertProfilePhotoKey(key, [userId.toString()]);
+  await assertIdentityUnlocked(userId, 'tu foto');
 
   const updated = await db
     .update(personal_data)
@@ -395,6 +410,14 @@ export async function updateMyAccount(userId: bigint, input: UpdatePersonalDataI
       'Debes proporcionar nombre y apellido paterno.',
     );
   }
+
+  // El teléfono y la fecha de nacimiento sí se pueden cambiar con un servicio en curso.
+  const renamed =
+    existing &&
+    (values.name !== existing.name ||
+      values.lastname_p !== existing.lastname_p ||
+      values.lastname_m !== existing.lastname_m);
+  if (renamed) await assertIdentityUnlocked(userId, 'tu nombre');
 
   if (existing) {
     const [updated] = await db

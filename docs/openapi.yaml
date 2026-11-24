@@ -992,6 +992,14 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >-
+            [API-55] La cuenta tiene un servicio en curso (`ACTIVE_SERVICE_LOCK`): el nombre y los apellidos (el teléfono sí) no se
+            cambia hasta que termine o se cancele.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/me/photo:
     put:
@@ -1040,6 +1048,14 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >-
+            [API-55] La cuenta tiene un servicio en curso (`ACTIVE_SERVICE_LOCK`): la foto no se
+            cambia hasta que termine o se cancele.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/me/password:
     patch:
@@ -5472,6 +5488,15 @@ components:
           oneOf:
             - $ref: '#/components/schemas/PersonalData'
             - type: 'null'
+        photo_url:
+          type:
+            - string
+            - 'null'
+        active_service:
+          type: boolean
+          description: >-
+            [API-55] La cuenta tiene un servicio aceptado que no ha terminado, como cliente o como
+            técnico. Mientras sea true, el nombre, la foto y el vehículo no se pueden cambiar.
 
     PersonalData:
       type: object
@@ -6705,6 +6730,9 @@ components:
           type:
             - object
             - 'null'
+          description: >-
+            [API-55] Desde que se acepta, el nombre, la foto y el vehículo son la copia guardada al
+            aceptar, aunque el técnico edite después su perfil.
           properties:
             employee_id:
               type: string
@@ -6715,6 +6743,19 @@ components:
                 - string
                 - 'null'
               format: uri
+            vehicle:
+              type:
+                - object
+                - 'null'
+              properties:
+                plate:
+                  type: string
+                brand:
+                  type: string
+                model:
+                  type: string
+                color:
+                  type: string
         client:
           type: object
           description: Visible para el proveedor.

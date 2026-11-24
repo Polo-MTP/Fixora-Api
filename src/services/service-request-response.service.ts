@@ -27,6 +27,7 @@ import {
 } from '../events/events/domain-events.ts';
 import { redisKeys } from '../utils/redis-keys.ts';
 import { timerService } from './timer.service.ts';
+import { partySnapshot } from './active-service.rules.ts';
 import { serializeServiceRequestForResponse } from './service-request-status.service.ts';
 
 interface Actor {
@@ -256,6 +257,9 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
       );
     }
 
+    // API-55: lo que cada parte ve de la otra queda fijo desde que se acepta.
+    const snapshot = await partySnapshot(tx, employeeId, request.client_id);
+
     const [updated] = await tx
       .update(service_requests)
       .set({
@@ -265,6 +269,7 @@ export async function acceptServiceRequest(requestId: bigint, actor: Actor, rawB
         accepted_at: now,
         expires_at: null,
         status: 'aceptada',
+        ...snapshot,
       })
       .where(
         and(eq(service_requests.UniqueID, requestId), eq(service_requests.status, 'pendiente')),
