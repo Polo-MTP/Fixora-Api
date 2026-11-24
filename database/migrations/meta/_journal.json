@@ -113,6 +113,13 @@
       "when": 1795330400000,
       "tag": "0015_api39_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795330500000,
+      "tag": "0016_api55_service_party_snapshot",
+      "breakpoints": true
     }
   ]
 }

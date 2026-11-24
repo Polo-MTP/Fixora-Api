@@ -12,6 +12,7 @@ import {
 import { BadRequestError, NotFoundError } from '../errors/app-error.ts';
 import { checkBranchAccess } from './portfolio.service.ts';
 import { storageService } from './storage.service.ts';
+import { assertEmployeeHasNoActiveService } from './active-service.rules.ts';
 import type { AuthenticatedUser } from '../middlewares/auth.middleware.ts';
 import type {
   EmployeeDetailResponse,
@@ -212,6 +213,11 @@ export class EmployeeProfileService {
       .where(eq(employee_profiles.employee_id, employeeId))
       .limit(1);
 
+    // API-55: la foto la ve el cliente al aceptar; la biografía sí se puede editar.
+    if (photoKey !== undefined && photoKey !== (existing?.photo_key ?? null)) {
+      await assertEmployeeHasNoActiveService(employeeId, 'foto', access.userId === BigInt(user.id));
+    }
+
     if (existing) {
       const updateData: Partial<typeof employee_profiles.$inferInsert> = {};
       if (photoKey !== undefined) updateData.photo_key = photoKey;
@@ -324,13 +330,29 @@ export class EmployeeProfileService {
     const active = input.active !== undefined ? Boolean(input.active) : true;
 
     const employeeId = BigInt(employeeIdInput);
-    await this.checkEmployeeAccess(employeeId, user);
+    const access = await this.checkEmployeeAccess(employeeId, user);
 
     const [existing] = await db
-      .select({ id: employee_vehicles.UniqueID })
+      .select()
       .from(employee_vehicles)
       .where(eq(employee_vehicles.employee_id, employeeId))
       .limit(1);
+
+    // API-55: el cliente identifica al técnico por las placas; no cambian a medio servicio.
+    const changed =
+      !existing ||
+      existing.plate !== plate ||
+      existing.brand !== brand ||
+      existing.model !== model ||
+      existing.color !== color ||
+      existing.active !== active;
+    if (changed) {
+      await assertEmployeeHasNoActiveService(
+        employeeId,
+        'vehículo',
+        access.userId === BigInt(user.id),
+      );
+    }
 
     if (existing) {
       await db
@@ -342,10 +364,10 @@ export class EmployeeProfileService {
           color,
           active,
         })
-        .where(eq(employee_vehicles.UniqueID, existing.id));
+        .where(eq(employee_vehicles.UniqueID, existing.UniqueID));
 
       return {
-        id: existing.id.toString(),
+        id: existing.UniqueID.toString(),
         employee_id: employeeId.toString(),
         plate,
         brand,
@@ -386,7 +408,12 @@ export class EmployeeProfileService {
     user: AuthenticatedUser,
   ): Promise<void> {
     const employeeId = BigInt(employeeIdInput);
-    await this.checkEmployeeAccess(employeeId, user);
+    const access = await this.checkEmployeeAccess(employeeId, user);
+    await assertEmployeeHasNoActiveService(
+      employeeId,
+      'vehículo',
+      access.userId === BigInt(user.id),
+    );
 
     await db
       .update(employee_vehicles)

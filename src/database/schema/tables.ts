@@ -424,6 +424,15 @@ export const service_requests = pgTable(
     client_uuid: varchar('client_uuid', { length: 100 }),
     accepted_at: timestamp('accepted_at'),
     arrived_at: timestamp('arrived_at'),
+    // Copia de los datos de cada parte al aceptar (API-55): el detalle muestra lo que se vio
+    // al aceptar aunque después se edite el perfil. Null en solicitudes anteriores o pendientes.
+    technician_name: varchar('technician_name', { length: 255 }),
+    technician_photo_key: varchar('technician_photo_key', { length: 500 }),
+    vehicle_plate: varchar('vehicle_plate', { length: 50 }),
+    vehicle_brand: varchar('vehicle_brand', { length: 100 }),
+    vehicle_model: varchar('vehicle_model', { length: 100 }),
+    vehicle_color: varchar('vehicle_color', { length: 50 }),
+    client_name: varchar('client_name', { length: 255 }),
   },
   (table) => ({
     clientUuidUnique: uniqueIndex('service_requests_client_uuid_unique')
