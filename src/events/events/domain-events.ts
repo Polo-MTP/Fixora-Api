@@ -16,6 +16,7 @@ export const DOMAIN_EVENTS = {
   SUPPLIER_APPLICATION_CREATED: 'supplier.application_created',
   CHAT_MESSAGE_SENT: 'chat.message_sent',
   CHAT_MESSAGES_READ: 'chat.messages_read',
+  REVIEW_CREATED: 'review.created',
 } as const;
 
 export abstract class BaseDomainEvent<T> implements DomainEvent<T> {
@@ -349,5 +350,27 @@ export interface ChatMessagesReadPayload {
 export class ChatMessagesReadEvent extends BaseDomainEvent<ChatMessagesReadPayload> {
   constructor(payload: ChatMessagesReadPayload, eventId?: string, occurredOn?: Date) {
     super(DOMAIN_EVENTS.CHAT_MESSAGES_READ, payload.requestId, payload, eventId, occurredOn);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Reseñas (API-39)
+// ---------------------------------------------------------------------------
+
+export interface ReviewCreatedPayload {
+  reviewId: string;
+  requestId: string;
+  direction: 'cliente_a_proveedor' | 'proveedor_a_cliente';
+  authorId: string;
+  /** Usuario reseñado: el técnico que atendió, o el cliente. */
+  revieweeId: string;
+  /** Sucursal que atendió la solicitud; su promedio solo cambia con reseñas de clientes. */
+  branchId: string | null;
+  rating: number;
+}
+
+export class ReviewCreatedEvent extends BaseDomainEvent<ReviewCreatedPayload> {
+  constructor(payload: ReviewCreatedPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.REVIEW_CREATED, payload.reviewId, payload, eventId, occurredOn);
   }
 }

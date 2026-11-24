@@ -22,6 +22,10 @@ import {
   markChatReadController,
   sendChatMessageController,
 } from '../controllers/chat.controller.ts';
+import {
+  createReviewController,
+  getRequestReviewsController,
+} from '../controllers/review.controller.ts';
 
 import {
   approvePriceAdjustmentController,
@@ -67,6 +71,7 @@ router.get('/:id/payments', listRequestPaymentsController);
 router.post('/:id/payments', registerPaymentController);
 router.post('/:id/payments/:paymentId/confirm', confirmPaymentController);
 router.post('/:id/payments/:paymentId/reject', rejectPaymentController);
+
 // El proveedor le recuerda al cliente un adeudo, máximo uno cada 24 horas (API-53).
 router.post('/:id/debt-reminders', sendDebtReminderController);
 
@@ -78,6 +83,10 @@ router.patch('/:id/status', changeServiceRequestStatus);
 router.get('/:id/chat', getChatController);
 router.post('/:id/chat/messages', sendChatMessageController);
 router.post('/:id/chat/read', markChatReadController);
+
+// Reseñas bidireccionales (API-39)
+router.get('/:id/reviews', getRequestReviewsController);
+router.post('/:id/reviews', createReviewController);
 
 // Obtener solicitud individual
 router.get('/:id', getOneServiceRequest);

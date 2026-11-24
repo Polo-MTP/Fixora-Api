@@ -8,10 +8,10 @@ const router = Router();
 // La protección va en cada ruta (no en router.use) para no bloquear a futuro otras rutas de
 // /api/reports que deban usar clientes o proveedores.
 router.get(
-    '/:reportId/conversation',
-    authenticateToken,
-    authorizeRoles('soporte', 'administrador'),
-    getReportConversationController,
+  '/:reportId/conversation',
+  authenticateToken,
+  authorizeRoles('soporte', 'administrador'),
+  getReportConversationController,
 );
 
 export default router;

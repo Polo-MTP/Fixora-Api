@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { portfolioController } from '../controllers/portfolio.controller.ts';
 import { employeeProfileController } from '../controllers/employee-profile.controller.ts';
 import { branchPublicController } from '../controllers/branch-public.controller.ts';
+import { listBranchReviewsController } from '../controllers/review.controller.ts';
 import { authenticateToken } from '../middlewares/auth.middleware.ts';
 
 const router = Router();
@@ -12,6 +13,9 @@ const router = Router();
 
 // Ficha pública del proveedor / sucursal (API-21)
 router.get('/:id/public', branchPublicController.getBranchPublicProfile);
+
+// Reseñas de clientes sobre la sucursal, paginadas (API-39; público)
+router.get('/:id/reviews', listBranchReviewsController);
 
 // Listar trabajos del portafolio de una sucursal (público)
 router.get('/:id/portfolio', portfolioController.getBranchPortfolio);

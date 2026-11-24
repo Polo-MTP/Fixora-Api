@@ -291,10 +291,7 @@ async function seed() {
   ];
 
   for (const doc of initialDocTypes) {
-    await db
-      .insert(type_documents)
-      .values(doc)
-      .onConflictDoNothing();
+    await db.insert(type_documents).values(doc).onConflictDoNothing();
   }
 
   console.log('✅ Datos semilla insertados correctamente.');

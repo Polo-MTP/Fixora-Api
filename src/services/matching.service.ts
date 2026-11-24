@@ -310,7 +310,13 @@ export class MatchingService {
         rating: reviews.rating,
       })
       .from(reviews)
-      .where(and(inArray(reviews.reviewee_id, userIds), eq(reviews.status, 'publicada')));
+      .where(
+        and(
+          inArray(reviews.reviewee_id, userIds),
+          eq(reviews.direction, 'cliente_a_proveedor'),
+          eq(reviews.status, 'publicada'),
+        ),
+      );
 
     // 6. Obtener posiciones precisas desde Redis
     const candidates: EmergencyTechnicianCandidate[] = [];

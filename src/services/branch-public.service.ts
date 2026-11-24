@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../config/database.ts';
 import {
   addresses,
@@ -11,13 +11,12 @@ import {
   employees,
   employee_profiles,
   employee_vehicles,
-  personal_data,
-  reviews,
   supplier_applications,
   suppliers,
 } from '../database/schema/tables.ts';
 import { NotFoundError } from '../errors/app-error.ts';
 import { portfolioService } from './portfolio.service.ts';
+import { listBranchReviews } from './review.service.ts';
 import { storageService } from './storage.service.ts';
 import type {
   BranchCategoryResponse,
@@ -26,6 +25,9 @@ import type {
   BranchReviewSummary,
   BranchScheduleResponse,
 } from '../types/portfolio.types.ts';
+
+const PROFILE_REVIEWS_LIMIT = 10;
+const LATEST_REVIEWS_LIMIT = 5;
 
 export class BranchPublicService {
   /**
@@ -47,6 +49,8 @@ export class BranchPublicService {
         total_jobs: branches.total_jobs,
         accepting_request: branches.accepting_request,
         description: branches.description,
+        rating_avg: branches.rating_avg,
+        reviews_count: branches.reviews_count,
         business_id: branches.business_id,
         business_name: business.name,
         business_phone: business.phone,
@@ -199,61 +203,18 @@ export class BranchPublicService {
     // 9. Certificados públicos aprobados
     const certificates = await portfolioService.getBranchCertificates(branchId);
 
-    // 10. Calificación promedio y reseñas públicas
-    // Se agregan las reseñas de los usuarios técnicos o proveedor de la sucursal
-    const userIdsToEvaluate = [
-      ...(supplierRow?.userId ? [supplierRow.userId] : []),
-      ...branchEmployees.map((e) => e.userId),
-    ];
-
-    let ratingAvg = 0;
-    let reviewsCount = 0;
-    const latestReviews: BranchReviewSummary[] = [];
-
-    if (userIdsToEvaluate.length > 0) {
-      const reviewRows = await db
-        .select({
-          id: reviews.UniqueID,
-          rating: reviews.rating,
-          comment: reviews.comment,
-          author_id: reviews.author_id,
-          author_name: personal_data.name,
-          author_lastname: personal_data.lastname_p,
-        })
-        .from(reviews)
-        .leftJoin(personal_data, eq(reviews.author_id, personal_data.user_id))
-        .where(
-          and(inArray(reviews.reviewee_id, userIdsToEvaluate), eq(reviews.status, 'publicada')),
-        )
-        .orderBy(desc(reviews.UniqueID))
-        .limit(5);
-
-      if (reviewRows.length > 0) {
-        // Consultar conteo total y suma para rating_avg preciso
-        const allReviews = await db
-          .select({ rating: reviews.rating })
-          .from(reviews)
-          .where(
-            and(inArray(reviews.reviewee_id, userIdsToEvaluate), eq(reviews.status, 'publicada')),
-          );
-
-        reviewsCount = allReviews.length;
-        const sum = allReviews.reduce((acc, curr) => acc + curr.rating, 0);
-        ratingAvg = reviewsCount > 0 ? Math.round((sum / reviewsCount) * 10) / 10 : 0;
-
-        for (const rev of reviewRows) {
-          const initial = rev.author_lastname ? `${rev.author_lastname.charAt(0)}.` : '';
-          const authorFormatted = rev.author_name
-            ? `${rev.author_name} ${initial}`.trim()
-            : 'Cliente';
-          latestReviews.push({
-            rating: rev.rating,
-            comment: rev.comment,
-            author_name: authorFormatted,
-          });
-        }
-      }
-    }
+    // 10. Calificación y reseñas de clientes (API-39)
+    // rating_avg y reviews_count los mantiene al día RatingObserver al guardarse cada reseña;
+    // aquí solo se leen. La lista trae la primera página; el resto, en GET /api/branches/:id/reviews.
+    const reviewsPage = await listBranchReviews(branchId, 1, PROFILE_REVIEWS_LIMIT);
+    const latestReviews: BranchReviewSummary[] = reviewsPage.items
+      .slice(0, LATEST_REVIEWS_LIMIT)
+      .map((review) => ({
+        rating: review.rating,
+        comment: review.comment,
+        author_name: review.author_name,
+        created_at: review.created_at,
+      }));
 
     const location: BranchPublicLocation = {
       colony: branchRow.colony,
@@ -272,8 +233,9 @@ export class BranchPublicService {
       phone: branchRow.phone || branchRow.business_phone || null,
       is_verified: isVerified,
       plates,
-      rating_avg: ratingAvg,
-      reviews_count: reviewsCount,
+      // Un decimal, igual que en la búsqueda, para que ambas pantallas muestren la misma cifra.
+      rating_avg: Math.round(Number(branchRow.rating_avg ?? 0) * 10) / 10,
+      reviews_count: branchRow.reviews_count,
       total_jobs: Number(branchRow.total_jobs),
       accepting_request: branchRow.accepting_request,
       location,
@@ -282,6 +244,7 @@ export class BranchPublicService {
       portfolio,
       certificates,
       latest_reviews: latestReviews,
+      reviews: reviewsPage,
     };
   }
 }
