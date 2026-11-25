@@ -120,6 +120,20 @@
       "when": 1795330500000,
       "tag": "0016_api55_service_party_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795420800000,
+      "tag": "0017_api40_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795420900000,
+      "tag": "0018_manager_is_owner",
+      "breakpoints": true
     }
   ]
 }

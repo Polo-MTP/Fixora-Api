@@ -119,6 +119,8 @@ export const reportCategoryEnum = pgEnum('report_category', [
   'otro',
 ]);
 
+export const reportTypeEnum = pgEnum('report_type', ['reporte', 'garantia', 'reclamacion']);
+
 export const reportPriorityEnum = pgEnum('report_priority', ['baja', 'media', 'alta', 'urgente']);
 
 export const reportStatusEnum = pgEnum('report_status', [

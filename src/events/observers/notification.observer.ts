@@ -16,6 +16,7 @@ import {
   type SupplierApplicationResolvedPayload,
   type SupplierApplicationCreatedPayload,
   type ChatMessageSentPayload,
+  type ReportCommentAddedPayload,
 } from '../events/domain-events.ts';
 import { db } from '../../config/database.ts';
 import {
@@ -252,6 +253,10 @@ export class NotificationObserver implements Observer<DomainEvent> {
         await this.handleChatMessage(event.payload as ChatMessageSentPayload);
         break;
 
+      case DOMAIN_EVENTS.REPORT_COMMENT_ADDED:
+        await this.handleReportComment(event.payload as ReportCommentAddedPayload);
+        break;
+
       default:
         break;
     }
@@ -453,25 +458,41 @@ export class NotificationObserver implements Observer<DomainEvent> {
   }
 
   private async handleReport(payload: ReportStatusChangedPayload): Promise<void> {
-    const { reportId, reporterId, toStatus, resolutionType } = payload;
+    const { reportId, reporterId, fromStatus, toStatus, resolutionType } = payload;
+    const label = payload.folio ?? `#${reportId}`;
 
-    let message = `Tu reporte #${reportId} ha cambiado de estado a "${toStatus}".`;
+    let message = `Tu reporte ${label} ha cambiado de estado a "${toStatus}".`;
 
-    if (toStatus === 'resuelto') {
-      message = `Tu reporte #${reportId} ha sido resuelto${resolutionType ? ' (' + resolutionType + ')' : ''}.`;
+    if (fromStatus === null && toStatus === 'pendiente') {
+      // Alta del reporte (API-40): acuse de recibo con el folio.
+      message = `Recibimos tu reporte ${label}. Te avisaremos cuando cambie de estado.`;
+    } else if (toStatus === 'resuelto') {
+      message = `Tu reporte ${label} ha sido resuelto${resolutionType ? ' (' + resolutionType + ')' : ''}.`;
     }
 
-    const record: NotificationRecord = {
+    // Se guarda y además se envía push, para que quien reportó se entere sin abrir la app.
+    await this.dispatch({
       userId: reporterId,
       type: 'reporte',
-      title: `Actualización de Reporte #${reportId}`,
+      title: `Actualización de Reporte ${label}`,
       message,
       entityType: 'report',
       entityId: reportId,
-    };
+    });
+  }
 
-    this.dispatchedRecords.push(record);
-    await this.persister(record);
+  /** Aviso a quien reportó cuando Soporte le comenta; las notas internas no avisan a nadie. */
+  private async handleReportComment(payload: ReportCommentAddedPayload): Promise<void> {
+    if (!payload.authorIsStaff || payload.internal) return;
+
+    await this.dispatch({
+      userId: payload.reporterId,
+      type: 'reporte',
+      title: `Nuevo comentario en tu reporte ${payload.folio}`,
+      message: payload.preview,
+      entityType: 'report',
+      entityId: payload.reportId,
+    });
   }
 
   private async handleSupplierVerification(payload: SupplierVerificationPayload): Promise<void> {
