@@ -97,6 +97,8 @@ export class HistoryObserver implements Observer<DomainEvent> {
       }
       case DOMAIN_EVENTS.REPORT_STATUS_CHANGED: {
         const payload = event.payload as ReportStatusChangedPayload;
+        // API-40: el servicio de reportes guarda la bitácora en su propia transacción.
+        if (payload.alreadyLogged) break;
         const entry: HistoryEntry = {
           category: 'report',
           aggregateId: payload.reportId,

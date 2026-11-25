@@ -162,10 +162,10 @@ export class AdminSupplierApplicationService {
         ...doc,
         validation: validation
           ? {
-              result: validation.result,
-              comment: validation.comment,
-              reviewed_at: validation.reviewed_at,
-            }
+            result: validation.result,
+            comment: validation.comment,
+            reviewed_at: validation.reviewed_at,
+          }
           : null,
       };
     });
@@ -330,6 +330,7 @@ export class AdminSupplierApplicationService {
                 lastname_p: personal_data.lastname_p,
                 role: roles.name,
                 can_attend: employees.can_attend,
+                is_manager: employees.is_manager,
                 active: employees.active,
               })
               .from(employees)
@@ -380,6 +381,7 @@ export class AdminSupplierApplicationService {
               lastname_p: employee.lastname_p,
               role: employee.role,
               can_attend: employee.can_attend,
+              is_manager: employee.is_manager,
               active: employee.active,
             })),
           };
@@ -405,11 +407,11 @@ export class AdminSupplierApplicationService {
       rfc: row.rfc,
       business: row.business_id
         ? {
-            name: row.business_name,
-            tax_identification: row.business_tax_identification,
-            email: row.business_email,
-            phone: row.business_phone,
-          }
+          name: row.business_name,
+          tax_identification: row.business_tax_identification,
+          email: row.business_email,
+          phone: row.business_phone,
+        }
         : null,
       branches: branchData,
       documents: docs.map((doc) => ({

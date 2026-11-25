@@ -94,6 +94,8 @@ export interface SupplierApplicationResult {
   manager_name: string;
   email: string;
   branches_count: number;
+  /** Locales donde el proveedor quedó como gerente con su misma cuenta (manager_is_owner). */
+  owner_managed_branches: number;
   documents_count: number;
 }
 

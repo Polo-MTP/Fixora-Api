@@ -107,6 +107,8 @@ export interface EmployeeDetailResponse {
   phone: string | null;
   role: string;
   can_attend: boolean;
+  /** Gerente del local (cuenta con rol gerente, o el propio proveedor con manager_is_owner). */
+  is_manager: boolean;
   active: boolean;
   profile: EmployeeProfileResponse;
   vehicle: EmployeeVehicleResponse | null;

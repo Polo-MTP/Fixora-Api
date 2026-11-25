@@ -76,6 +76,10 @@ export function setupDomainEventObservers(
   bus.register(DOMAIN_EVENTS.CHAT_MESSAGE_SENT, realtimeObserver);
   bus.register(DOMAIN_EVENTS.CHAT_MESSAGES_READ, realtimeObserver);
 
+  // Comentarios de reportes (API-40): aviso a quien reportó y tiempo real.
+  bus.register(DOMAIN_EVENTS.REPORT_COMMENT_ADDED, notificationObserver);
+  bus.register(DOMAIN_EVENTS.REPORT_COMMENT_ADDED, realtimeObserver);
+
   // Reseñas (API-39): recalcula rating_avg y reviews_count al guardarse una reseña.
   bus.register(DOMAIN_EVENTS.REVIEW_CREATED, ratingObserver);
 

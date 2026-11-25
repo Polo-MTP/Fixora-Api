@@ -17,6 +17,7 @@ export const DOMAIN_EVENTS = {
   CHAT_MESSAGE_SENT: 'chat.message_sent',
   CHAT_MESSAGES_READ: 'chat.messages_read',
   REVIEW_CREATED: 'review.created',
+  REPORT_COMMENT_ADDED: 'report.comment_added',
 } as const;
 
 export abstract class BaseDomainEvent<T> implements DomainEvent<T> {
@@ -226,6 +227,15 @@ export interface ReportStatusChangedPayload {
   category: string;
   resolutionType?: string | null;
   comment?: string | null;
+  /** Folio legible del reporte (API-40); si falta se usa el id. */
+  folio?: string | null;
+  /** reporte, garantia o reclamacion (API-40). */
+  reportType?: string | null;
+  /**
+   * Verdadero cuando quien emite el evento ya guardó la fila de bitácora dentro de su transacción
+   * (API-40); el HistoryObserver no la repite.
+   */
+  alreadyLogged?: boolean;
 }
 
 export class ReportStatusChangedEvent extends BaseDomainEvent<ReportStatusChangedPayload> {
@@ -372,5 +382,27 @@ export interface ReviewCreatedPayload {
 export class ReviewCreatedEvent extends BaseDomainEvent<ReviewCreatedPayload> {
   constructor(payload: ReviewCreatedPayload, eventId?: string, occurredOn?: Date) {
     super(DOMAIN_EVENTS.REVIEW_CREATED, payload.reviewId, payload, eventId, occurredOn);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Comentarios en reportes (API-40)
+// ---------------------------------------------------------------------------
+
+export interface ReportCommentAddedPayload {
+  reportId: string;
+  folio: string;
+  reporterId: string;
+  authorId: string;
+  /** Verdadero si comentó Soporte o un Administrador. */
+  authorIsStaff: boolean;
+  /** Nota interna: no la ve quien reportó y no genera aviso. */
+  internal: boolean;
+  preview: string;
+}
+
+export class ReportCommentAddedEvent extends BaseDomainEvent<ReportCommentAddedPayload> {
+  constructor(payload: ReportCommentAddedPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.REPORT_COMMENT_ADDED, payload.reportId, payload, eventId, occurredOn);
   }
 }

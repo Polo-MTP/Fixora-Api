@@ -15,6 +15,7 @@ import {
   type SupplierApplicationResolvedPayload,
   type ChatMessageSentPayload,
   type ChatMessagesReadPayload,
+  type ReportCommentAddedPayload,
 } from '../events/domain-events.ts';
 
 export interface RealTimeMessage {
@@ -180,6 +181,7 @@ export class RealTimeObserver implements Observer<DomainEvent> {
             event: 'report_updated',
             data: {
               reportId: payload.reportId,
+              folio: payload.folio ?? null,
               status: payload.toStatus,
               resolutionType: payload.resolutionType,
             },
@@ -246,6 +248,34 @@ export class RealTimeObserver implements Observer<DomainEvent> {
               messageId: payload.messageId,
               senderId: payload.senderId,
               preview: payload.preview,
+            },
+            timestamp,
+          });
+        }
+        break;
+      }
+
+      case DOMAIN_EVENTS.REPORT_COMMENT_ADDED: {
+        const payload = event.payload as ReportCommentAddedPayload;
+
+        // Las notas internas solo llegan a Soporte, y sin el texto.
+        const channels = payload.internal
+          ? ['admin:reports']
+          : [
+            `reports:${payload.reportId}`,
+            payload.authorIsStaff ? `users:${payload.reporterId}` : 'admin:reports',
+          ];
+
+        for (const channel of channels) {
+          await this.emitMessage({
+            channel,
+            event: 'report_comment',
+            data: {
+              reportId: payload.reportId,
+              folio: payload.folio,
+              authorIsStaff: payload.authorIsStaff,
+              internal: payload.internal,
+              preview: payload.internal ? null : payload.preview,
             },
             timestamp,
           });

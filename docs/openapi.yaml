@@ -67,6 +67,8 @@ tags:
     description: Conversación entre cliente y técnico de una solicitud aceptada, y lectura para Soporte.
   - name: Reseñas
     description: Calificaciones entre cliente y proveedor al finalizar una solicitud, y su promedio.
+  - name: Reportes
+    description: Reportes, garantías y reclamaciones ligados a un servicio, con evidencia, folio y bitácora.
   - name: Pagos
     description: Registro y confirmación de pagos, historial y adeudos (API-37).
   - name: Administración
@@ -4432,6 +4434,438 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/reports:
+    post:
+      tags:
+        - Reportes
+      summary: Levantar un reporte, garantía o reclamación
+      description: |
+        Lo levanta quien participa en el servicio (cliente, técnico asignado, gerente o proveedor dueño).
+        Devuelve el caso con su **folio** (`REP-2026-000123` para reportes, `GAR-` para garantías y `REC-`
+        para reclamaciones). La evidencia se sube antes con `POST /api/files/upload` (`category=photos` o
+        `evidences`) y aquí se mandan sus llaves en `attachment_keys` (hasta 5: imágenes, video MP4 o PDF).
+
+        Reglas: el servicio debe tener técnico asignado. Las garantías las pide solo el cliente, y las
+        garantías y reclamaciones solo proceden con el servicio `completada`. No se puede tener dos casos
+        abiertos del mismo tipo para el mismo servicio. Quien reporta recibe un acuse con el folio por
+        notificación y push, y el equipo de Soporte lo ve en tiempo real.
+
+        `client_uuid` es opcional: reintentar con el mismo valor devuelve `200` con el caso original.
+      x-estado: implementado
+      x-ticket: API-40
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportInput'
+            examples:
+              reporte:
+                value:
+                  request_id: '501'
+                  category: servicio_incompleto
+                  description: El técnico se fue sin terminar la instalación del lavabo.
+                  attachment_keys:
+                    - photos/42/2026/11/lavabo.jpg
+              garantia:
+                value:
+                  request_id: '501'
+                  type: garantia
+                  category: danos
+                  description: A los tres días volvió la fuga en la misma conexión.
+      responses:
+        '201':
+          description: Caso creado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '200':
+          description: El `client_uuid` ya existía; se devuelve el caso original.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '400':
+          description: Datos inválidos (`VALIDATION_ERROR`, `INVALID_EVIDENCE_FILE_TYPE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La evidencia no pertenece a quien reporta (`FILE_NOT_OWNED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El servicio no admite ese caso (`REPORT_NOT_ALLOWED`) o ya hay uno abierto (`REPORT_ALREADY_OPEN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - Reportes
+      summary: Listar reportes
+      description: |
+        Soporte y Administrador ven todos y pueden filtrar por `assigned_to` (`me` o un id) y buscar por
+        folio con `q`. Los demás usuarios ven solo los casos que levantaron.
+      x-estado: implementado
+      x-ticket: API-40
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pendiente, en_revision, resuelto, rechazado]
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [reporte, garantia, reclamacion]
+        - in: query
+          name: category
+          schema:
+            type: string
+            enum: [servicio_incompleto, cobro_indebido, danos, conducta_inapropiada, otro]
+        - in: query
+          name: priority
+          schema:
+            type: string
+            enum: [baja, media, alta, urgente]
+        - in: query
+          name: request_id
+          schema:
+            type: string
+        - in: query
+          name: assigned_to
+          schema:
+            type: string
+          description: Solo Soporte. `me` o el id de un usuario de Soporte.
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Solo Soporte. Folio completo o su parte inicial, por ejemplo `GAR-2026`.
+      responses:
+        '200':
+          description: Página de casos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReportListPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/reports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Reportes
+      summary: Detalle del reporte, con evidencia y bitácora
+      description: |
+        Lo ve quien lo levantó y el equipo de Soporte; para cualquier otra persona no existe (`404`).
+        La bitácora (`events`) trae comentarios y cambios de estado en orden cronológico. Quien reportó
+        no ve las notas internas ni los nombres de Soporte (aparece "Soporte").
+      x-estado: implementado
+      x-ticket: API-40
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Caso completo.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/reports/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Reportes
+      summary: Comentar en la bitácora
+      description: |
+        Quien reportó y Soporte pueden comentar. Un comentario de Soporte avisa a quien reportó por
+        notificación y push. Soporte puede dejar una **nota interna** con `internal: true`: no la ve
+        quien reportó y no genera aviso. Quien reportó no puede comentar un caso ya cerrado.
+      x-estado: implementado
+      x-ticket: API-40
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCommentInput'
+      responses:
+        '201':
+          description: Comentario agregado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReportEvent'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Solo Soporte puede dejar notas internas (`INTERNAL_NOTE_FORBIDDEN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El reporte ya está cerrado (`REPORT_CLOSED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/reports/{id}/evidence:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Reportes
+      summary: Agregar más evidencia
+      description: |
+        Hasta 5 archivos por envío y 10 por reporte. Deja una línea en la bitácora. Las llaves salen de
+        `POST /api/files/upload` y deben ser de archivos subidos por quien las manda.
+      x-estado: implementado
+      x-ticket: API-40
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - attachment_keys
+              properties:
+                attachment_keys:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Evidencia agregada; devuelve toda la evidencia del reporte.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          evidence:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/ReportEvidence'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: El archivo no pertenece a quien lo manda (`FILE_NOT_OWNED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El reporte está cerrado (`REPORT_CLOSED`) o llegó al límite de archivos (`REPORT_EVIDENCE_LIMIT`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/reports/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Reportes
+      summary: Cambiar el estado (Soporte)
+      description: |
+        Solo Soporte y Administrador. Transiciones: `pendiente` → `en_revision` | `rechazado`, y
+        `en_revision` → `resuelto` | `rechazado`. Resuelto y rechazado son finales.
+
+        - `resuelto` exige `resolution_type` y `comment` con la resolución.
+        - `rechazado` exige `comment` con el motivo.
+        - Al pasar a `en_revision` un reporte sin responsable, queda asignado a quien lo tomó.
+
+        El cambio y su línea de bitácora se guardan en una sola transacción. Quien reportó recibe el aviso
+        por notificación y push; el comentario queda visible para él en la bitácora.
+      x-estado: implementado
+      x-ticket: API-40
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeReportStatusInput'
+            examples:
+              tomar:
+                value:
+                  status: en_revision
+              resolver:
+                value:
+                  status: resuelto
+                  resolution_type: reembolso
+                  comment: Se aprobó el reembolso del cobro duplicado.
+              rechazar:
+                value:
+                  status: rechazado
+                  comment: La evidencia no corresponde al servicio reportado.
+      responses:
+        '200':
+          description: Caso actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Transición no permitida (`INVALID_REPORT_TRANSITION`) o el estado cambió al mismo tiempo (`REPORT_STATE_CONFLICT`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/reports/{id}/assign:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Reportes
+      summary: Asignar el reporte (Soporte)
+      description: |
+        Sin cuerpo, quien llama toma el reporte. Un Administrador puede mandar `assigned_to` para
+        asignarlo a otra persona de Soporte activa. Deja una nota interna en la bitácora.
+      x-estado: implementado
+      x-ticket: API-40
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assigned_to:
+                  type: string
+      responses:
+        '200':
+          description: Caso actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '400':
+          description: El usuario de assigned_to no es de Soporte o no está activo (`INVALID_ASSIGNEE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El reporte ya está cerrado (`REPORT_CLOSED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/reports/{reportId}/conversation:
     parameters:
       - in: path
@@ -7262,6 +7696,272 @@ components:
                       type:
                         - string
                         - 'null'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+            total_pages:
+              type: integer
+
+    CreateReportInput:
+      type: object
+      required:
+        - request_id
+        - category
+        - description
+      properties:
+        request_id:
+          type: string
+          description: Servicio al que se liga el caso.
+        type:
+          type: string
+          enum: [reporte, garantia, reclamacion]
+          default: reporte
+        category:
+          type: string
+          enum: [servicio_incompleto, cobro_indebido, danos, conducta_inapropiada, otro]
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        attachment_keys:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+          description: Llaves de archivos subidos con `category=photos` o `evidences`.
+        client_uuid:
+          type: string
+          format: uuid
+
+    ReportCommentInput:
+      type: object
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        internal:
+          type: boolean
+          default: false
+          description: Solo Soporte. Nota que no ve quien reportó.
+
+    ChangeReportStatusInput:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [en_revision, resuelto, rechazado]
+        resolution_type:
+          type: string
+          enum: [sin_sancion, reembolso, sancion_usuario, bloqueo_cuenta, otro]
+          description: Obligatorio con `resuelto`; no se permite con otros estados.
+        comment:
+          type: string
+          maxLength: 2000
+          description: Obligatorio con `resuelto` y `rechazado`. Lo ve quien reportó.
+        priority:
+          type: string
+          enum: [baja, media, alta, urgente]
+
+    ReportEvidence:
+      type: object
+      properties:
+        id:
+          type: string
+        mime_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, video/mp4, application/pdf]
+        size_bytes:
+          type:
+            - integer
+            - 'null'
+        url:
+          type:
+            - string
+            - 'null'
+          description: Enlace firmado con vigencia de 180 minutos.
+        uploaded_by:
+          type: string
+          description: Solo lo ve Soporte.
+        created_at:
+          type: string
+          format: date-time
+
+    ReportEvent:
+      type: object
+      description: Una línea de la bitácora.
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [comentario, cambio_estado, asignacion, resolucion]
+        author_name:
+          type: string
+          description: Quien reportó ve "Soporte" en lugar del nombre de la persona que atiende.
+        author_is_staff:
+          type: boolean
+        body:
+          type: string
+        from_status:
+          type:
+            - string
+            - 'null'
+        to_status:
+          type:
+            - string
+            - 'null'
+        created_at:
+          type: string
+          format: date-time
+        author_id:
+          type: string
+          description: Solo lo ve Soporte.
+        is_internal:
+          type: boolean
+          description: Solo lo ve Soporte. Las notas internas no se muestran a quien reportó.
+
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+        folio:
+          type: string
+          example: REP-2026-000123
+        type:
+          type: string
+          enum: [reporte, garantia, reclamacion]
+        category:
+          type: string
+        priority:
+          type: string
+          enum: [baja, media, alta, urgente]
+        status:
+          type: string
+          enum: [pendiente, en_revision, resuelto, rechazado]
+        description:
+          type: string
+        request:
+          type:
+            - object
+            - 'null'
+          properties:
+            id:
+              type: string
+            status:
+              type: string
+            branch_id:
+              type:
+                - string
+                - 'null'
+            completed_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+        resolution_type:
+          type:
+            - string
+            - 'null'
+        resolution_note:
+          type:
+            - string
+            - 'null'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportEvidence'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportEvent'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        reporter_id:
+          type: string
+          description: Solo lo ve Soporte.
+        reported_id:
+          type:
+            - string
+            - 'null'
+          description: Solo lo ve Soporte. La contraparte del que reportó.
+        assigned_to:
+          type:
+            - string
+            - 'null'
+          description: Solo lo ve Soporte.
+
+    ReportListPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              folio:
+                type: string
+              type:
+                type: string
+              category:
+                type: string
+              priority:
+                type: string
+              status:
+                type: string
+              request_id:
+                type:
+                  - string
+                  - 'null'
+              description:
+                type: string
+                description: Primeros 140 caracteres.
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+              resolved_at:
+                type:
+                  - string
+                  - 'null'
+                format: date-time
+              reporter_id:
+                type: string
+                description: Solo Soporte.
+              reported_id:
+                type:
+                  - string
+                  - 'null'
+                description: Solo Soporte.
+              assigned_to:
+                type:
+                  - string
+                  - 'null'
+                description: Solo Soporte.
         pagination:
           type: object
           properties:

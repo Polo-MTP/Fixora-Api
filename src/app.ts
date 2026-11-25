@@ -27,6 +27,7 @@ import searchRoutes from './routes/search.routes.ts';
 import branchEmployeeRoutes from './routes/branch-employee.routes.ts';
 import serviceRequestRoutes from './routes/service-request-status.routes.ts';
 import reportChatRoutes from './routes/report-chat.routes.ts';
+import reportRoutes from './routes/report.routes.ts';
 
 import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
@@ -100,6 +101,9 @@ app.use('/api/service-requests', serviceRequestRoutes);
 
 // Lectura del chat por parte de Soporte, desde un reporte (API-35)
 app.use('/api/reports', reportChatRoutes);
+
+// Reportes, garantías y reclamaciones con evidencia y bitácora (API-40)
+app.use('/api/reports', reportRoutes);
 
 // Empleados, agenda disponible y sucursales (API-19 y API-27)
 app.use('/api/branches', branchEmployeeRoutes);
