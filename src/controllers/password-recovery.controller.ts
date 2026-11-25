@@ -100,4 +100,3 @@ export async function resetPasswordController(
     handleRecoveryError(error, res, next);
   }
 }
-

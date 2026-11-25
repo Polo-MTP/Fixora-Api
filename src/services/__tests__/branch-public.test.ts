@@ -57,6 +57,19 @@ describe('API-21: Ficha Pública del Proveedor', () => {
         latest_reviews: [
           { rating: 5, comment: 'Excelente trabajo y muy puntual.', author_name: 'Roberto M.' },
         ],
+        reviews: {
+          items: [
+            {
+              id: '1',
+              rating: 5,
+              comment: 'Excelente trabajo y muy puntual.',
+              author_name: 'Roberto M.',
+              created_at: '2026-11-19T18:00:00.000Z',
+              evidence: [],
+            },
+          ],
+          pagination: { page: 1, limit: 10, total: 12, total_pages: 2 },
+        },
       };
 
       const originalMethod = branchPublicService.getBranchPublicProfile;
@@ -100,6 +113,8 @@ describe('API-21: Ficha Pública del Proveedor', () => {
         assert.deepEqual(typedResponse.data.plates, ['ABC-1234', 'XYZ-5678']);
         assert.equal(typedResponse.data.rating_avg, 4.8);
         assert.equal(typedResponse.data.reviews_count, 12);
+        assert.equal(typedResponse.data.reviews.items.length, 1);
+        assert.equal(typedResponse.data.reviews.pagination.total, 12);
         assert.equal(typedResponse.data.location.colony, 'Del Valle');
         // Confirma que no se expone dirección exacta
         assert.equal(
@@ -137,6 +152,10 @@ describe('API-21: Ficha Pública del Proveedor', () => {
         portfolio: [],
         certificates: [],
         latest_reviews: [],
+        reviews: {
+          items: [],
+          pagination: { page: 1, limit: 10, total: 0, total_pages: 0 },
+        },
       };
 
       const originalMethod = branchPublicService.getBranchPublicProfile;
@@ -172,6 +191,7 @@ describe('API-21: Ficha Pública del Proveedor', () => {
         assert.equal(typedResponse.data.rating_avg, 0);
         assert.equal(typedResponse.data.reviews_count, 0);
         assert.deepEqual(typedResponse.data.latest_reviews, []);
+        assert.deepEqual(typedResponse.data.reviews.items, []);
         assert.deepEqual(typedResponse.data.plates, []);
         assert.equal(typedResponse.data.is_verified, false);
       } finally {

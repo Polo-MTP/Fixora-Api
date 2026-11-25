@@ -65,6 +65,8 @@ tags:
     description: Creación, seguimiento y cambios de estado de una solicitud.
   - name: Chat
     description: Conversación entre cliente y técnico de una solicitud aceptada, y lectura para Soporte.
+  - name: Reseñas
+    description: Calificaciones entre cliente y proveedor al finalizar una solicitud, y su promedio.
   - name: Pagos
     description: Registro y confirmación de pagos, historial y adeudos (API-37).
   - name: Administración
@@ -990,6 +992,14 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >-
+            [API-55] La cuenta tiene un servicio en curso (`ACTIVE_SERVICE_LOCK`): el nombre y los apellidos (el teléfono sí) no se
+            cambia hasta que termine o se cancele.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/me/photo:
     put:
@@ -1038,6 +1048,14 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >-
+            [API-55] La cuenta tiene un servicio en curso (`ACTIVE_SERVICE_LOCK`): la foto no se
+            cambia hasta que termine o se cancele.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/me/password:
     patch:
@@ -4256,6 +4274,164 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/service-requests/{id}/reviews:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Reseñas
+      summary: Reseñas de la solicitud y si ya puedes calificar
+      description: |
+        Para quienes participan en la solicitud (cliente, técnico asignado, gerente y proveedor dueño).
+        Devuelve las reseñas de ambos sentidos que ya existan. `can_review` es verdadero cuando la
+        solicitud está finalizada y quien consulta aún no calificó en su sentido.
+      x-estado: implementado
+      x-ticket: API-39
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Reseñas de la solicitud.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RequestReviews'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - Reseñas
+      summary: Calificar la solicitud
+      description: |
+        Estrellas de 1 a 5, comentario opcional y evidencia opcional (hasta 3 archivos). El sentido sale
+        de quién escribe: el cliente califica al proveedor (`cliente_a_proveedor`) y el equipo del
+        proveedor (técnico asignado, gerente o dueño) califica al cliente (`proveedor_a_cliente`).
+        Solo se puede con la solicitud en estado `completada`, y una vez por sentido.
+
+        La evidencia se sube antes con `POST /api/files/upload` (`category=photos` o `evidences`) y aquí
+        se mandan sus llaves. Al guardar, un observador recalcula `rating_avg` y `reviews_count` del
+        usuario reseñado y, si la reseña es del cliente, también los de la sucursal; la respuesta ya
+        refleja el nuevo promedio en la ficha pública.
+
+        `client_uuid` es opcional: reintentar con el mismo valor devuelve `200` con la reseña original.
+      x-estado: implementado
+      x-ticket: API-39
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReviewInput'
+            examples:
+              clienteConEvidencia:
+                value:
+                  rating: 5
+                  comment: Llegó puntual y dejó todo limpio.
+                  attachment_keys:
+                    - photos/42/2026/11/resultado.jpg
+                  client_uuid: 3f2b8c1e-5a47-4d0b-9c1a-7e6f2d4b8a10
+              soloEstrellas:
+                value:
+                  rating: 4
+      responses:
+        '201':
+          description: Reseña guardada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Review'
+        '200':
+          description: El `client_uuid` ya existía; se devuelve la reseña original.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Review'
+        '400':
+          description: Datos inválidos (`VALIDATION_ERROR`, `INVALID_EVIDENCE_FILE_TYPE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La evidencia no pertenece a quien escribe (`FILE_NOT_OWNED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La solicitud no está finalizada o no tiene técnico (`REVIEW_NOT_ALLOWED`), ya hay una reseña en ese sentido (`REVIEW_ALREADY_EXISTS`) o el `client_uuid` ya se usó en otra reseña (`CLIENT_UUID_IN_USE`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/branches/{id}/reviews:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Reseñas
+      summary: Reseñas de clientes sobre una sucursal (público)
+      description: |
+        No requiere sesión. De la más nueva a la más vieja, solo reseñas publicadas de clientes. La ficha
+        pública (`GET /api/branches/{id}/public`) ya trae la primera página en `reviews`; este endpoint
+        sirve para "ver más".
+      x-estado: implementado
+      x-ticket: API-39
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Página de reseñas.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BranchReviewsPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/reports/{reportId}/conversation:
     parameters:
       - in: path
@@ -5312,6 +5488,15 @@ components:
           oneOf:
             - $ref: '#/components/schemas/PersonalData'
             - type: 'null'
+        photo_url:
+          type:
+            - string
+            - 'null'
+        active_service:
+          type: boolean
+          description: >-
+            [API-55] La cuenta tiene un servicio aceptado que no ha terminado, como cliente o como
+            técnico. Mientras sea true, el nombre, la foto y el vehículo no se pueden cambiar.
 
     PersonalData:
       type: object
@@ -6134,6 +6319,9 @@ components:
               created_at:
                 type: string
                 format: date-time
+          description: Se conserva por compatibilidad; son las primeras 5 de `reviews.items`.
+        reviews:
+          $ref: '#/components/schemas/BranchReviewsPage'
 
     TechnicianAvailability:
       type: object
@@ -6542,6 +6730,9 @@ components:
           type:
             - object
             - 'null'
+          description: >-
+            [API-55] Desde que se acepta, el nombre, la foto y el vehículo son la copia guardada al
+            aceptar, aunque el técnico edite después su perfil.
           properties:
             employee_id:
               type: string
@@ -6552,6 +6743,24 @@ components:
                 - string
                 - 'null'
               format: uri
+            vehicle:
+              type:
+                - object
+                - 'null'
+              properties:
+                plate:
+                  type: string
+                brand:
+                  type: string
+                model:
+                  type: string
+                color:
+                  type: string
+            verified:
+              type: boolean
+              description: >-
+                [API-56] El proveedor de la sucursal tiene su solicitud de alta aprobada; es la
+                misma insignia que `is_verified` de la ficha pública.
         client:
           type: object
           description: Visible para el proveedor.
@@ -6562,6 +6771,14 @@ components:
               type:
                 - number
                 - 'null'
+            reviews_count:
+              type: integer
+              description: Reseñas publicadas que ha recibido el cliente de proveedores.
+            reviews:
+              type: array
+              description: Últimos comentarios de proveedores sobre el cliente (hasta 5), visibles antes de aceptar.
+              items:
+                $ref: '#/components/schemas/ClientReview'
         address:
           oneOf:
             - $ref: '#/components/schemas/Address'
@@ -6897,6 +7114,165 @@ components:
             $ref: '#/components/schemas/ChatMessage'
         pagination:
           $ref: '#/components/schemas/ChatPagination'
+
+    CreateReviewInput:
+      type: object
+      required:
+        - rating
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+          maxLength: 1000
+        attachment_keys:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+          description: Llaves de imágenes (JPEG, PNG, WebP) o video MP4 subidos con `category=photos` o `evidences`.
+        client_uuid:
+          type: string
+          format: uuid
+
+    ReviewEvidence:
+      type: object
+      properties:
+        id:
+          type: string
+        mime_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, video/mp4]
+        size_bytes:
+          type:
+            - integer
+            - 'null'
+        url:
+          type:
+            - string
+            - 'null'
+          description: Enlace firmado con vigencia de 180 minutos.
+
+    Review:
+      type: object
+      description: Reseña vista por quien participa en la solicitud.
+      properties:
+        id:
+          type: string
+        request_id:
+          type: string
+        direction:
+          type: string
+          enum: [cliente_a_proveedor, proveedor_a_cliente]
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type:
+            - string
+            - 'null'
+        author_id:
+          type: string
+        author_name:
+          type: string
+        reviewee_id:
+          type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewEvidence'
+        client_uuid:
+          type:
+            - string
+            - 'null'
+        created_at:
+          type: string
+          format: date-time
+
+    RequestReviews:
+      type: object
+      properties:
+        request_id:
+          type: string
+        my_direction:
+          type: string
+          enum: [cliente_a_proveedor, proveedor_a_cliente]
+        can_review:
+          type: boolean
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Review'
+
+    ClientReview:
+      type: object
+      properties:
+        id:
+          type: string
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type:
+            - string
+            - 'null'
+        author_name:
+          type: string
+          description: Nombre e inicial del apellido del proveedor que calificó.
+        created_at:
+          type: string
+          format: date-time
+
+    BranchReviewsPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              rating:
+                type: integer
+                minimum: 1
+                maximum: 5
+              comment:
+                type:
+                  - string
+                  - 'null'
+              author_name:
+                type: string
+                description: Nombre e inicial del apellido.
+              created_at:
+                type: string
+                format: date-time
+              evidence:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    mime_type:
+                      type: string
+                    url:
+                      type:
+                        - string
+                        - 'null'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+            total_pages:
+              type: integer
 
   responses:
     InvalidInput:

@@ -95,11 +95,11 @@ Respuesta: `{ "type": "subscribed", "room": "chats:456" }`. Si no participa, `FO
 
 Eventos:
 
-| Evento               | Sala            | Cuándo                                                                 |
-| -------------------- | --------------- | ---------------------------------------------------------------------- |
-| `chat_message`       | `chats:<id>`    | Hay un mensaje nuevo. `data` es el mensaje completo, igual que en REST. |
-| `chat_messages_read` | `chats:<id>`    | La otra parte leyó mensajes: `messageIds`, `readerId`, `readAt`.        |
-| `chat_unread`        | `users:<id>`    | Al destinatario, aunque no tenga el chat abierto: contador de no leídos. |
+| Evento               | Sala         | Cuándo                                                                   |
+| -------------------- | ------------ | ------------------------------------------------------------------------ |
+| `chat_message`       | `chats:<id>` | Hay un mensaje nuevo. `data` es el mensaje completo, igual que en REST.  |
+| `chat_messages_read` | `chats:<id>` | La otra parte leyó mensajes: `messageIds`, `readerId`, `readAt`.         |
+| `chat_unread`        | `users:<id>` | Al destinatario, aunque no tenga el chat abierto: contador de no leídos. |
 
 El emisor también recibe su propio `chat_message`; la app lo reconoce por `client_uuid` y no lo duplica.
 
