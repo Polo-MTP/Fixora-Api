@@ -11,13 +11,13 @@ import {
   employees,
   employee_profiles,
   employee_vehicles,
-  supplier_applications,
   suppliers,
 } from '../database/schema/tables.ts';
 import { NotFoundError } from '../errors/app-error.ts';
 import { portfolioService } from './portfolio.service.ts';
 import { listBranchReviews } from './review.service.ts';
 import { storageService } from './storage.service.ts';
+import { isBranchVerified } from './supplier-verification.rules.ts';
 import type {
   BranchCategoryResponse,
   BranchPublicLocation,
@@ -86,22 +86,8 @@ export class BranchPublicService {
       )
       .limit(1);
 
-    // 3. Determinar si el proveedor tiene insignia de verificado (solicitud aprobada)
-    let isVerified = false;
-    if (supplierRow) {
-      const [approvedApp] = await db
-        .select({ id: supplier_applications.UniqueID })
-        .from(supplier_applications)
-        .where(
-          and(
-            eq(supplier_applications.supplier_id, supplierRow.supplierId),
-            eq(supplier_applications.state, 'aprobada'),
-          ),
-        )
-        .limit(1);
-
-      isVerified = Boolean(approvedApp);
-    }
+    // 3. Insignia de verificado: el proveedor tiene su solicitud de alta aprobada (misma regla que API-56)
+    const isVerified = supplierRow ? await isBranchVerified(branchId) : false;
 
     // 4. Empleados de la sucursal y placas de sus vehículos activos
     const branchEmployees = await db

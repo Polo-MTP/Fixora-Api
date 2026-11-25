@@ -34,6 +34,7 @@ import { listClientReviews } from './review.service.ts';
 import { storageService } from './storage.service.ts';
 import { trackingService } from './tracking.service.ts';
 import { displayName, partiesToShow, type VehicleView } from './active-service.rules.ts';
+import { isBranchVerified } from './supplier-verification.rules.ts';
 import { isValidServiceRequestTransition } from '../utils/service-request-transitions.ts';
 import {
   closePriceForCompletion,
@@ -403,6 +404,7 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     name: string;
     photo_url: string | null;
     vehicle: VehicleView | null;
+    verified: boolean;
   } | null = null;
   let clientName = displayName(client);
   if (request.employee_id) {
@@ -450,6 +452,8 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
         name: shown.technicianName,
         photo_url: signedFileUrl(shown.technicianPhotoKey),
         vehicle: shown.vehicle,
+        // API-56: la misma insignia que la ficha pública, para la tarjeta del técnico.
+        verified: request.branch_id ? await isBranchVerified(request.branch_id) : false,
       };
       clientName = shown.clientName;
     }
