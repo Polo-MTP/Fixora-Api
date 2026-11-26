@@ -69,6 +69,8 @@ tags:
     description: Calificaciones entre cliente y proveedor al finalizar una solicitud, y su promedio.
   - name: Reportes
     description: Reportes, garantías y reclamaciones ligados a un servicio, con evidencia, folio y bitácora.
+  - name: Sanciones
+    description: Restricciones temporales y marcas de usuarios problemáticos, aplicadas por Soporte o por la regla automática.
   - name: Pagos
     description: Registro y confirmación de pagos, historial y adeudos (API-37).
   - name: Administración
@@ -2897,6 +2899,12 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La cuenta tiene una restricción temporal vigente y no puede crear solicitudes nuevas (`ACCOUNT_RESTRICTED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: La sucursal no acepta solicitudes ahora o el horario ya no está libre (`BRANCH_NOT_AVAILABLE`, `SLOT_TAKEN`).
           content:
@@ -2941,6 +2949,12 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La cuenta tiene una restricción temporal vigente y no puede crear solicitudes nuevas (`ACCOUNT_RESTRICTED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: No hay técnicos disponibles cerca (`NO_TECHNICIANS_AVAILABLE`).
           content:
@@ -4433,6 +4447,264 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/sanctions:
+    post:
+      tags:
+        - Sanciones
+      summary: Aplicar una sanción (Soporte)
+      description: |
+        Solo Soporte y Administrador. Tipos:
+
+        - `restriccion_temporal`: bloquea las solicitudes nuevas del usuario mientras esté vigente. Exige
+          `ends_at` (futuro, máximo 365 días). Las solicitudes que ya tenía siguen su curso.
+        - `baja_reputacion`: marca visible para el usuario; no bloquea nada.
+        - `usuario_problematico`: marca interna; alerta a los proveedores y no se le avisa al usuario.
+
+        `report_id` es opcional y, si se manda, el reporte debe señalar a ese usuario. No se puede sancionar a
+        personal de Soporte o Administración, ni dos sanciones vigentes del mismo tipo al mismo usuario. Se avisa
+        al usuario por notificación y push (salvo la marca interna).
+      x-estado: implementado
+      x-ticket: API-42
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplySanctionInput'
+            examples:
+              restriccion:
+                value:
+                  user_id: '20'
+                  type: restriccion_temporal
+                  reason: Cancelaciones repetidas a última hora.
+                  ends_at: '2026-12-15T23:59:00Z'
+                  report_id: '45'
+              marca:
+                value:
+                  user_id: '20'
+                  type: usuario_problematico
+                  reason: Trato inadecuado reiterado con los técnicos.
+      responses:
+        '201':
+          description: Sanción aplicada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Sanction'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Sin permisos, o el usuario es de Soporte o Administración (`SANCTION_TARGET_FORBIDDEN`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Ya hay una sanción vigente de ese tipo (`SANCTION_ALREADY_ACTIVE`) o el reporte no señala al usuario (`REPORT_USER_MISMATCH`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - Sanciones
+      summary: Consultar sanciones (Soporte)
+      description: Solo Soporte y Administrador. Filtra por usuario, tipo y estado (`vigente`, `vencida`, `retirada`).
+      x-estado: implementado
+      x-ticket: API-42
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: user_id
+          schema:
+            type: string
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [restriccion_temporal, baja_reputacion, usuario_problematico]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [vigente, vencida, retirada]
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Página de sanciones.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SanctionListPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/sanctions/me:
+    get:
+      tags:
+        - Sanciones
+      summary: Mis sanciones vigentes
+      description: |
+        Lo que la persona puede ver de su propia cuenta: restricciones temporales y bajas de reputación vigentes.
+        Las marcas de usuario problemático son internas y no aparecen. Sirve para mostrar en la app hasta cuándo
+        no puede crear solicitudes.
+      x-estado: implementado
+      x-ticket: API-42
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sanciones vigentes.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                type:
+                                  type: string
+                                reason:
+                                  type: string
+                                starts_at:
+                                  type: string
+                                  format: date-time
+                                ends_at:
+                                  type:
+                                    - string
+                                    - 'null'
+                                  format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/sanctions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Sanciones
+      summary: Detalle de una sanción (Soporte)
+      x-estado: implementado
+      x-ticket: API-42
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sanción.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Sanction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/sanctions/{id}/lift:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Sanciones
+      summary: Retirar una sanción (Soporte)
+      description: |
+        Retira una sanción vigente y guarda quién la retiró y por qué. Una restricción retirada permite crear
+        solicitudes de inmediato. Si se retira una marca automática, el conteo de reportes confirmados empieza
+        de nuevo: solo cuentan los que se confirmen después.
+      x-estado: implementado
+      x-ticket: API-42
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Sanción retirada.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Sanction'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Ya estaba retirada (`SANCTION_ALREADY_LIFTED`) o ya venció (`SANCTION_EXPIRED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/reports:
     post:
@@ -7213,6 +7485,13 @@ components:
               description: Últimos comentarios de proveedores sobre el cliente (hasta 5), visibles antes de aceptar.
               items:
                 $ref: '#/components/schemas/ClientReview'
+            alert:
+              oneOf:
+                - $ref: '#/components/schemas/ClientAlert'
+                - type: 'null'
+              description: |
+                Alerta para el proveedor y Soporte cuando el cliente tiene una marca vigente o reportes en su
+                contra. `null` si no hay nada que avisar. El propio cliente nunca la ve.
         address:
           oneOf:
             - $ref: '#/components/schemas/Address'
@@ -7973,6 +8252,130 @@ components:
               type: integer
             total_pages:
               type: integer
+
+    ApplySanctionInput:
+      type: object
+      required:
+        - user_id
+        - type
+        - reason
+      properties:
+        user_id:
+          type: string
+        type:
+          type: string
+          enum: [restriccion_temporal, baja_reputacion, usuario_problematico]
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        ends_at:
+          type: string
+          format: date-time
+          description: Obligatorio con `restriccion_temporal` (futuro, máximo 365 días). En las marcas es opcional; sin fecha no vencen.
+        report_id:
+          type: string
+          description: Reporte que motiva la sanción; debe señalar al mismo usuario.
+
+    Sanction:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        report_id:
+          type:
+            - string
+            - 'null'
+        type:
+          type: string
+          enum: [restriccion_temporal, baja_reputacion, usuario_problematico]
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [vigente, vencida, retirada]
+        source:
+          type: string
+          enum: [manual, automatica]
+          description: '`automatica` cuando la puso la regla de reportes confirmados.'
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        lifted_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        lifted_by:
+          type:
+            - string
+            - 'null'
+        lift_reason:
+          type:
+            - string
+            - 'null'
+
+    SanctionListPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sanction'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+            total_pages:
+              type: integer
+
+    ClientAlert:
+      type: object
+      description: Alerta sobre un cliente para el proveedor. No incluye los motivos internos.
+      properties:
+        has_mark:
+          type: boolean
+          description: Tiene una marca vigente (baja de reputación o usuario problemático).
+        marks:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [baja_reputacion, usuario_problematico]
+              since:
+                type: string
+                format: date-time
+        previous_reports:
+          type: object
+          properties:
+            confirmed:
+              type: integer
+              description: Reportes en su contra que se resolvieron como confirmados.
+            in_review:
+              type: integer
+              description: Reportes en su contra aún pendientes o en revisión.
+        message:
+          type: string
+          example: Este cliente tiene una marca de usuario con antecedentes, 3 reportes confirmados.
 
   responses:
     InvalidInput:

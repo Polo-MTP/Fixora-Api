@@ -262,9 +262,9 @@ export class RealTimeObserver implements Observer<DomainEvent> {
         const channels = payload.internal
           ? ['admin:reports']
           : [
-            `reports:${payload.reportId}`,
-            payload.authorIsStaff ? `users:${payload.reporterId}` : 'admin:reports',
-          ];
+              `reports:${payload.reportId}`,
+              payload.authorIsStaff ? `users:${payload.reporterId}` : 'admin:reports',
+            ];
 
         for (const channel of channels) {
           await this.emitMessage({

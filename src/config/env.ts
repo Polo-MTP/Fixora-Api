@@ -21,6 +21,10 @@ export const ENV = {
 
   EMAIL_VERIFICATION_RESEND_SECONDS: Number(process.env.EMAIL_VERIFICATION_RESEND_SECONDS) || 60,
 
+  // Sanciones (API-42): una cuenta se marca como usuario problemático cuando acumula MÁS reportes
+  // confirmados que este número (con 2, se marca al tercero).
+  SANCTION_AUTO_MARK_THRESHOLD: Number(process.env.SANCTION_AUTO_MARK_THRESHOLD) || 2,
+
   // Almacenamiento local (tipo Laravel Storage) y enlaces firmados.
   // El secreto es propio de los enlaces: no se reutiliza el de JWT ni hay un valor fijo en código
   // (ver resolveSignSecret en storage.service.ts).

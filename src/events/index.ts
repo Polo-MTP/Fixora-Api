@@ -4,6 +4,7 @@ import { HistoryObserver } from './observers/history.observer.ts';
 import { RealTimeObserver } from './observers/realtime.observer.ts';
 import { EmailObserver } from './observers/email.observer.ts';
 import { RatingObserver } from './observers/rating.observer.ts';
+import { SanctionObserver } from './observers/sanction.observer.ts';
 import { DOMAIN_EVENTS } from './events/domain-events.ts';
 
 export * from './interfaces/domain-event.interface.ts';
@@ -16,6 +17,7 @@ export * from './observers/history.observer.ts';
 export * from './observers/realtime.observer.ts';
 export * from './observers/email.observer.ts';
 export * from './observers/rating.observer.ts';
+export * from './observers/sanction.observer.ts';
 
 export interface SetupObserversOptions {
   notificationObserver?: NotificationObserver;
@@ -23,6 +25,7 @@ export interface SetupObserversOptions {
   realtimeObserver?: RealTimeObserver;
   emailObserver?: EmailObserver;
   ratingObserver?: RatingObserver;
+  sanctionObserver?: SanctionObserver;
 }
 
 /**
@@ -37,6 +40,7 @@ export function setupDomainEventObservers(
   const realtimeObserver = options?.realtimeObserver ?? new RealTimeObserver();
   const emailObserver = options?.emailObserver ?? new EmailObserver();
   const ratingObserver = options?.ratingObserver ?? new RatingObserver();
+  const sanctionObserver = options?.sanctionObserver ?? new SanctionObserver();
 
   // Registrar observadores para los eventos de dominio principales
   const domainEventTypes = [
@@ -83,6 +87,12 @@ export function setupDomainEventObservers(
   // Reseñas (API-39): recalcula rating_avg y reviews_count al guardarse una reseña.
   bus.register(DOMAIN_EVENTS.REVIEW_CREATED, ratingObserver);
 
+  // Sanciones (API-42): la regla automática marca al superar el umbral de reportes confirmados,
+  // y se avisa a la persona sancionada cuando se aplica o se retira una sanción.
+  bus.register(DOMAIN_EVENTS.REPORT_STATUS_CHANGED, sanctionObserver);
+  bus.register(DOMAIN_EVENTS.SANCTION_APPLIED, notificationObserver);
+  bus.register(DOMAIN_EVENTS.SANCTION_LIFTED, notificationObserver);
+
   return {
     bus,
     notificationObserver,
@@ -90,5 +100,6 @@ export function setupDomainEventObservers(
     realtimeObserver,
     emailObserver,
     ratingObserver,
+    sanctionObserver,
   };
 }

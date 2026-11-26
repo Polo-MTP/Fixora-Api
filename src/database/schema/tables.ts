@@ -766,19 +766,33 @@ export const report_attachments = pgTable('report_attachments', {
 // MÓDULO: Cuentas, roles y accesos (Parte 2: Depende de reports)
 // ============================================================================
 
-export const account_sanctions = pgTable('account_sanctions', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  user_id: bigint('user_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  report_id: bigint('report_id', { mode: 'bigint' }).references(() => reports.UniqueID),
-  type: sanctionTypeEnum('type').notNull(),
-  reason: text('reason').notNull(),
-  starts_at: timestamp('starts_at').notNull(),
-  ends_at: timestamp('ends_at'),
-  active: boolean('active').notNull().default(true),
-  created_by: bigint('created_by', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-});
+export const account_sanctions = pgTable(
+  'account_sanctions',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    user_id: bigint('user_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    report_id: bigint('report_id', { mode: 'bigint' }).references(() => reports.UniqueID),
+    type: sanctionTypeEnum('type').notNull(),
+    reason: text('reason').notNull(),
+    starts_at: timestamp('starts_at').notNull(),
+    ends_at: timestamp('ends_at'),
+    active: boolean('active').notNull().default(true),
+    created_by: bigint('created_by', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    // 'manual' (la aplicó Soporte) o 'automatica' (la regla de reportes confirmados) (API-42).
+    source: varchar('source', { length: 20 }).notNull().default('manual'),
+    lifted_at: timestamp('lifted_at'),
+    lifted_by: bigint('lifted_by', { mode: 'bigint' }).references(() => users.UniqueID),
+    lift_reason: text('lift_reason'),
+  },
+  (table) => ({
+    userActiveIdx: index('account_sanctions_user_active_idx')
+      .on(table.user_id, table.type)
+      .where(sql`${table.active} = true`),
+    userIdx: index('account_sanctions_user_idx').on(table.user_id, table.created_at),
+  }),
+);

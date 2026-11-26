@@ -24,6 +24,7 @@ import { eventBus } from '../events/event-bus.ts';
 import { ServiceRequestStatusChangedEvent } from '../events/events/domain-events.ts';
 import { storageService } from './storage.service.ts';
 import { timerService } from './timer.service.ts';
+import { assertClientNotRestricted } from './sanction.service.ts';
 import { getServiceRequest } from './service-request-status.service.ts';
 
 const SLOT_INTERVAL_MINUTES = 30;
@@ -593,6 +594,9 @@ export async function createServiceRequest(actor: { id: string; role: string }, 
     )
     .limit(1);
   if (existing) return await getServiceRequest(existing.id, actor);
+
+  // API-42: con una restricción temporal vigente no se pueden crear solicitudes nuevas.
+  await assertClientNotRestricted(clientId);
 
   const photos = await validatePhotoKeys(input.attachment_keys ?? [], actor.id);
   const scheduledAt = input.scheduled_at ? new Date(input.scheduled_at) : null;
