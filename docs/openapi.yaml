@@ -6044,6 +6044,117 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /api/search/recommendations:
+    get:
+      tags:
+        - Búsqueda
+      summary: '[API-47] Servicios recomendados para la pantalla principal del cliente'
+      description: >-
+        Las mejores parejas negocio-servicio cerca del cliente, calificadas con el algoritmo de
+        emparejamiento (API-24): cercanía, técnico independiente, disponibilidad, calificación y
+        el precio de ese servicio. La disponibilidad cuenta si hay técnicos en línea ahora
+        (`online_now`), además del horario (`open_now`). No repite negocio y primero varía los
+        servicios; si faltan, completa con los mejores aunque repitan servicio.
+      x-ticket: API-47
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: radius_km
+          in: query
+          schema:
+            type: number
+            minimum: 1
+            maximum: 50
+            default: 10
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 8
+      responses:
+        '200':
+          description: Recomendados, del mejor al menos bueno. Vacío si no hay negocios cerca.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            branch:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                name:
+                                  type: string
+                                business_name:
+                                  type: string
+                                supplier_type:
+                                  type: string
+                                  enum: [independiente, empresa]
+                                logo_url:
+                                  type:
+                                    - string
+                                    - 'null'
+                                latitude:
+                                  type: number
+                                longitude:
+                                  type: number
+                                distance_km:
+                                  type: number
+                                rating_avg:
+                                  type: number
+                                reviews_count:
+                                  type: integer
+                            category:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                name:
+                                  type: string
+                                icon_key:
+                                  type:
+                                    - string
+                                    - 'null'
+                            base_price:
+                              type: string
+                              example: '350.00'
+                            duration_minutes:
+                              type: integer
+                            open_now:
+                              type: boolean
+                            online_now:
+                              type: boolean
+                            match_score:
+                              type: number
+        '400':
+          description: Faltan las coordenadas o algún parámetro está fuera de rango.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   parameters:
     Id:
