@@ -71,6 +71,8 @@ tags:
     description: Reportes, garantías y reclamaciones ligados a un servicio, con evidencia, folio y bitácora.
   - name: Sanciones
     description: Restricciones temporales y marcas de usuarios problemáticos, aplicadas por Soporte o por la regla automática.
+  - name: Soporte
+    description: Bandeja de reportes de Soporte e historial auditable de un servicio.
   - name: Pagos
     description: Registro y confirmación de pagos, historial y adeudos (API-37).
   - name: Administración
@@ -4448,6 +4450,263 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/support/inbox:
+    get:
+      tags:
+        - Soporte
+      summary: Bandeja de Soporte
+      description: |
+        Reportes, garantías y reclamaciones para Soporte y Administrador. Trae `summary` con los conteos de la
+        bandeja (no dependen de los filtros: por estado, sin asignar, míos, urgentes y atrasados) y la página de
+        casos.
+
+        Orden por defecto (`sort=prioridad`): abiertos primero y, entre ellos, urgente, alta, media y baja, del
+        más antiguo al más nuevo. `antiguedad` ordena por fecha de creación y `actividad` por última
+        actualización. Un caso abierto se marca `overdue` pasadas 48 horas.
+      x-estado: implementado
+      x-ticket: API-41
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+          description: Uno o varios estados separados por coma, por ejemplo `pendiente,en_revision`.
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [reporte, garantia, reclamacion]
+        - in: query
+          name: category
+          schema:
+            type: string
+            enum: [servicio_incompleto, cobro_indebido, danos, conducta_inapropiada, otro]
+        - in: query
+          name: priority
+          schema:
+            type: string
+            enum: [baja, media, alta, urgente]
+        - in: query
+          name: assigned
+          schema:
+            type: string
+          description: '`me`, `unassigned` o el id de una persona de Soporte.'
+        - in: query
+          name: request_id
+          schema:
+            type: string
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Folio completo o parte inicial (`GAR-2026`). Si son solo dígitos, también busca por id de solicitud.
+        - in: query
+          name: created_from
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: created_to
+          schema:
+            type: string
+            format: date
+          description: Una fecha sin hora incluye todo ese día.
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [prioridad, antiguedad, actividad]
+            default: prioridad
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Conteos y página de casos.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/InboxPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/support/inbox/{id}/assign:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Soporte
+      summary: Asignar un caso de la bandeja
+      description: |
+        Sin cuerpo, quien llama toma el caso. Un Administrador puede mandar `assigned_to` para asignarlo a otra
+        persona de Soporte activa. Es el mismo comportamiento de `POST /api/reports/{id}/assign`.
+      x-estado: implementado
+      x-ticket: API-41
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assigned_to:
+                  type: string
+      responses:
+        '200':
+          description: Caso actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El caso ya está cerrado (`REPORT_CLOSED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/support/inbox/{id}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags:
+        - Soporte
+      summary: Resolver un caso con tipo de resolución
+      description: |
+        Resuelve el caso con un `resolution_type` y un comentario con la resolución, que ve quien reportó. Si el
+        caso sigue `pendiente`, primero lo pasa a `en_revision` (y queda asignado a quien lo resuelve), así un solo
+        clic deja la bitácora completa. Se valida todo antes de mover nada. Quien reportó recibe el aviso por
+        notificación y push. Para rechazar un caso se usa `POST /api/reports/{id}/status`.
+      x-estado: implementado
+      x-ticket: API-41
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveReportInput'
+            examples:
+              reembolso:
+                value:
+                  resolution_type: reembolso
+                  comment: Se aprobó el reembolso del cobro duplicado.
+      responses:
+        '200':
+          description: Caso resuelto.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Report'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El caso ya está cerrado (`REPORT_CLOSED`) o cambió de estado al mismo tiempo (`REPORT_STATE_CONFLICT`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/support/service-requests/{id}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Soporte
+      summary: Historial auditable del servicio
+      description: |
+        Solo Soporte y Administrador. Reúne en orden cronológico todo lo que pasó en una solicitud:
+
+        - **estado**: cada cambio con quién lo hizo, la hora y, cuando se registró, la ubicación.
+        - **despacho**: a qué técnicos se notificó y cómo respondieron.
+        - **cancelacion**: quién canceló y el motivo.
+        - **chat**: apertura del chat y mensajes. El contenido solo se incluye si el servicio tiene al menos un
+          reporte; sin reporte, solo se indica cuántos mensajes hubo (`chat.content_hidden_reason: sin_reporte`).
+        - **pago** y **ajuste_precio**: registro, confirmación o rechazo, y respuesta del cliente.
+        - **evidencia**: archivos de la solicitud, de la cancelación y del cierre, con enlace firmado de 60 minutos.
+        - **reporte**: reportes, garantías y reclamaciones del servicio y su cierre.
+
+        Además trae los tiempos (`durations`), los puntos clave de ubicación (`locations`), la distancia a la que
+        el técnico marcó su llegada y su cierre respecto al domicilio (`audit`) y el resumen económico (`financial`).
+      x-estado: implementado
+      x-ticket: API-41
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: types
+          schema:
+            type: string
+          description: Tipos de entrada separados por coma (`estado,pago,chat`). Sin este parámetro, todos. `counts` siempre cuenta todos.
+      responses:
+        '200':
+          description: Historial del servicio.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServiceTimeline'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/sanctions:
     post:
       tags:
@@ -8376,6 +8635,305 @@ components:
         message:
           type: string
           example: Este cliente tiene una marca de usuario con antecedentes, 3 reportes confirmados.
+
+    ResolveReportInput:
+      type: object
+      required:
+        - resolution_type
+        - comment
+      properties:
+        resolution_type:
+          type: string
+          enum: [sin_sancion, reembolso, sancion_usuario, bloqueo_cuenta, otro]
+        comment:
+          type: string
+          maxLength: 2000
+          description: Resolución del caso. La ve quien reportó.
+        priority:
+          type: string
+          enum: [baja, media, alta, urgente]
+
+    InboxPerson:
+      type:
+        - object
+        - 'null'
+      properties:
+        id:
+          type: string
+        name:
+          type:
+            - string
+            - 'null'
+        role:
+          type:
+            - string
+            - 'null'
+
+    InboxPage:
+      type: object
+      properties:
+        summary:
+          type: object
+          properties:
+            by_status:
+              type: object
+              properties:
+                pendiente:
+                  type: integer
+                en_revision:
+                  type: integer
+                resuelto:
+                  type: integer
+                rechazado:
+                  type: integer
+            open_total:
+              type: integer
+            unassigned_open:
+              type: integer
+            mine_open:
+              type: integer
+            urgent_open:
+              type: integer
+            overdue_open:
+              type: integer
+            overdue_after_hours:
+              type: integer
+              example: 48
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              folio:
+                type: string
+              type:
+                type: string
+              category:
+                type: string
+              priority:
+                type: string
+              status:
+                type: string
+              request_id:
+                type:
+                  - string
+                  - 'null'
+              description:
+                type: string
+                description: Primeros 140 caracteres.
+              reporter:
+                $ref: '#/components/schemas/InboxPerson'
+              reported:
+                $ref: '#/components/schemas/InboxPerson'
+              assigned_to:
+                $ref: '#/components/schemas/InboxPerson'
+              evidence_count:
+                type: integer
+              comments_count:
+                type: integer
+              age_hours:
+                type: integer
+              overdue:
+                type: boolean
+              resolution_type:
+                type:
+                  - string
+                  - 'null'
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+              resolved_at:
+                type:
+                  - string
+                  - 'null'
+                format: date-time
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+            total_pages:
+              type: integer
+
+    TimelineEntry:
+      type: object
+      properties:
+        at:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [estado, despacho, cancelacion, chat, pago, ajuste_precio, evidencia, reporte]
+        kind:
+          type: string
+          description: Subtipo, por ejemplo `cambio_estado`, `mensaje`, `pago_confirmado` o `ajuste_declarado`.
+        title:
+          type: string
+        actor:
+          type:
+            - object
+            - 'null'
+          properties:
+            id:
+              type: string
+            name:
+              type:
+                - string
+                - 'null'
+            role:
+              type:
+                - string
+                - 'null'
+        details:
+          type: object
+          additionalProperties: true
+        location:
+          type:
+            - object
+            - 'null'
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+
+    ServiceTimeline:
+      type: object
+      properties:
+        request:
+          type: object
+          description: Datos de la solicitud (estado, categoría, domicilio, cliente, técnico, cancelación y fechas).
+          additionalProperties: true
+        durations:
+          type: object
+          description: Tiempos en minutos; `null` cuando falta alguno de los dos momentos.
+          properties:
+            to_accept_minutes:
+              type:
+                - integer
+                - 'null'
+            to_arrive_minutes:
+              type:
+                - integer
+                - 'null'
+            service_minutes:
+              type:
+                - integer
+                - 'null'
+            total_minutes:
+              type:
+                - integer
+                - 'null'
+        locations:
+          type: array
+          description: Puntos clave de ubicación, que son el domicilio y las coordenadas registradas en cada cambio de estado.
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              source:
+                type: string
+                enum: [direccion, emergencia, estado]
+              at:
+                type:
+                  - string
+                  - 'null'
+                format: date-time
+              latitude:
+                type: number
+              longitude:
+                type: number
+        audit:
+          type: object
+          properties:
+            arrival_distance_m:
+              type:
+                - integer
+                - 'null'
+              description: Metros entre donde el técnico marcó su llegada y el domicilio.
+            completion_distance_m:
+              type:
+                - integer
+                - 'null'
+              description: Metros entre donde se cerró el servicio y el domicilio.
+        financial:
+          type: object
+          properties:
+            agreed_price:
+              type:
+                - number
+                - 'null'
+            total_amount:
+              type:
+                - number
+                - 'null'
+            adjustments:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pending:
+                  type: integer
+                approved_amount:
+                  type: number
+            payments:
+              type: object
+              properties:
+                total:
+                  type: integer
+                pending:
+                  type: integer
+                rejected:
+                  type: integer
+                confirmed_amount:
+                  type: number
+        chat:
+          type: object
+          properties:
+            conversation_id:
+              type:
+                - string
+                - 'null'
+            messages_total:
+              type: integer
+            first_message_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            last_message_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            content_included:
+              type: boolean
+            truncated:
+              type: boolean
+            content_hidden_reason:
+              type:
+                - string
+                - 'null'
+              enum: [sin_reporte, null]
+        counts:
+          type: object
+          description: Cuántas entradas hay de cada tipo, sin importar el filtro `types`.
+          additionalProperties:
+            type: integer
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEntry'
 
   responses:
     InvalidInput:
