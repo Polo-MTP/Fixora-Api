@@ -36,6 +36,12 @@ import { swaggerUi, openApiDocument } from './config/swagger.ts';
 import { setupDomainEventObservers } from './events/index.ts';
 import { attachWebSocketServer } from './realtime/websocket.server.ts';
 import { serviceRequestExpirationService } from './services/service-request-expiration.service.ts';
+import { apiRateLimit } from './middlewares/rate-limit.middleware.ts';
+import {
+  parseCorsOrigins,
+  parseTrustProxy,
+  securityHeaders,
+} from './middlewares/security.middleware.ts';
 import { debtReminderService } from './services/debt-reminder.service.ts';
 
 // Inicializar observadores del patrón Observer (Módulos 1 y 5)
@@ -45,10 +51,22 @@ const app = express();
 
 app.disable('x-powered-by');
 
+// API-43: detrás del proxy del servidor, la IP real del cliente para el límite de peticiones.
+const isProduction = ENV.NODE_ENV === 'production';
+const trustProxy = parseTrustProxy(ENV.TRUST_PROXY);
+app.set('trust proxy', trustProxy);
+if (isProduction && trustProxy === false) {
+  console.warn(
+    '[Seguridad] Falta TRUST_PROXY: detrás de un proxy todos los clientes compartirán el límite de peticiones.',
+  );
+}
+
 // Middlewares globales
-app.use(cors({ origin: ENV.CORS_ORIGIN }));
+app.use(securityHeaders(isProduction));
+app.use(cors({ origin: parseCorsOrigins(ENV.CORS_ORIGIN, isProduction) }));
 app.use(express.json({ limit: '20kb' }));
 app.use(requestLogger);
+app.use('/api', apiRateLimit);
 
 // Ruta base
 app.get('/', (_req: Request, res: Response) => {
@@ -68,8 +86,10 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// Documentación Swagger
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+// Documentación Swagger; en producción solo con API_DOCS=true (API-43).
+if (!isProduction || ENV.API_DOCS) {
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+}
 
 // Rutas generales
 app.use('/api', apiRouter);

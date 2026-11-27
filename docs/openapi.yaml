@@ -33,8 +33,14 @@ info:
     | 403 | La cuenta no tiene permiso o no está activa |
     | 404 | El recurso o la ruta no existe (`ROUTE_NOT_FOUND`) |
     | 409 | Conflicto con el estado actual (duplicado, ya procesado) |
-    | 429 | Demasiados intentos |
+    | 429 | Demasiados intentos o peticiones (`TOO_MANY_REQUESTS`) |
     | 500 | Error inesperado (`INTERNAL_SERVER_ERROR`) |
+
+    **Límite de peticiones (API-43).** Toda la API admite 600 peticiones por minuto por IP. El
+    registro, la verificación de correo, el inicio de sesión y la recuperación de contraseña admiten
+    10 intentos cada 15 minutos por IP y correo, y 100 por IP. Al pasarse responde 429
+    `TOO_MANY_REQUESTS` con `Retry-After` (segundos); cada respuesta trae `RateLimit-Limit`,
+    `RateLimit-Remaining` y `RateLimit-Reset`.
 
     **Endpoints planeados.** Los que dicen **[Planeado · API-XX]** todavía no existen: son el
     contrato que implementará ese ticket, para que las apps puedan avanzar en paralelo. Llevan
@@ -180,6 +186,8 @@ paths:
               example:
                 error: EMAIL_ALREADY_REGISTERED
                 message: Ya existe una cuenta registrada con este correo electrónico.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           description: Error interno o rol cliente no disponible.
           content:
@@ -277,7 +285,7 @@ paths:
                 error: EMAIL_ALREADY_VERIFIED
                 message: El correo electrónico ya fue verificado.
         '429':
-          description: Se alcanzó el máximo de intentos de verificación.
+          description: Se alcanzó el máximo de intentos de verificación. También `TOO_MANY_REQUESTS` por el límite de peticiones (API-43).
           content:
             application/json:
               schema:
@@ -335,7 +343,7 @@ paths:
                 error: INVALID_EMAIL
                 message: Debes proporcionar un correo electrónico válido.
         '429':
-          description: Todavía no ha transcurrido el intervalo mínimo para reenviar el código.
+          description: Todavía no ha transcurrido el intervalo mínimo para reenviar el código. También `TOO_MANY_REQUESTS` por el límite de peticiones (API-43).
           content:
             application/json:
               schema:
@@ -419,6 +427,8 @@ paths:
               example:
                 error: ACCOUNT_TEMPORARILY_LOCKED
                 message: La cuenta está bloqueada temporalmente. Intenta más tarde.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -876,6 +886,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '503':
           description: |
             Redis no está disponible (`RECOVERY_SERVICE_UNAVAILABLE`), el correo no está configurado
@@ -923,7 +935,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Se superó el límite de intentos (`RECOVERY_ATTEMPTS_EXCEEDED`).
+          description: Se superó el límite de intentos (`RECOVERY_ATTEMPTS_EXCEEDED`). También `TOO_MANY_REQUESTS` por el límite de peticiones (API-43).
           content:
             application/json:
               schema:
@@ -10366,6 +10378,23 @@ components:
           type: integer
 
   responses:
+    TooManyRequests:
+      description: >-
+        [API-43] Demasiados intentos desde esta conexión o con esta cuenta. Esperar los segundos
+        de `Retry-After`.
+      headers:
+        Retry-After:
+          description: Segundos para volver a intentar.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: TOO_MANY_REQUESTS
+            message: Demasiados intentos con esta cuenta. Espera 15 minutos e intenta de nuevo.
+
     ScheduleConflict:
       description: >-
         [API-45] El horario choca con otro bloqueo (`BLOCK_OVERLAP`) o con citas del técnico
