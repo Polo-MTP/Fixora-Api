@@ -25,6 +25,7 @@ import employeeRoutes from './routes/employee.routes.ts';
 import technicianRoutes from './routes/technician.routes.ts';
 import agendaRoutes from './routes/agenda.routes.ts';
 import providerStatsRoutes from './routes/provider-stats.routes.ts';
+import providerIncomeRoutes from './routes/provider-income.routes.ts';
 import searchRoutes from './routes/search.routes.ts';
 import branchEmployeeRoutes from './routes/branch-employee.routes.ts';
 import serviceRequestRoutes from './routes/service-request-status.routes.ts';
@@ -97,6 +98,9 @@ app.use('/api/agenda', agendaRoutes);
 
 // Estadísticas del proveedor por periodo y sucursal (API-44)
 app.use('/api/stats', providerStatsRoutes);
+
+// Ingresos del proveedor por servicio (API-46)
+app.use('/api/income', providerIncomeRoutes);
 
 // Búsqueda de proveedores por radio, categoría y filtros (API-23)
 app.use('/api/search', searchRoutes);

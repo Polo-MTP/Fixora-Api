@@ -81,6 +81,8 @@ tags:
     description: Citas y bloqueos de horario del técnico y de la sucursal (API-45).
   - name: Estadísticas
     description: Desempeño del proveedor por periodo y sucursal (API-44).
+  - name: Ingresos
+    description: Ingresos del proveedor por servicio y comisiones con la plataforma (API-46).
   - name: Administración
     description: Revisión de proveedores y alta de personal interno.
   - name: Usuarios
@@ -5874,6 +5876,173 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/income:
+    get:
+      tags:
+        - Ingresos
+      summary: '[API-46] Ingresos del proveedor por servicio'
+      description: >-
+        Lo que se cobró en cada servicio (un servicio puede tener varios pagos), con bruto,
+        comisión de la plataforma y neto. Lo ven el dueño (todas sus sucursales) y el gerente (la
+        suya). Con efectivo o transferencia el proveedor recibe todo y le debe la comisión a la
+        plataforma: `commission_owed`. Un ingreso queda liquidado cuando esa comisión se registra
+        como pagada; `pending_settlement` es el neto de lo que aún no se liquida. Sin `from` ni
+        `to` se ve todo; con alguno, el periodo en la zona de la sucursal.
+      x-ticket: API-46
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: branch_id
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: commission_status
+          in: query
+          schema:
+            type: string
+            enum: [pendiente, pagada]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Ingresos por servicio y totales de lo filtrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  branches:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                  period:
+                    type:
+                      - object
+                      - 'null'
+                    properties:
+                      from:
+                        type: string
+                        format: date
+                      to:
+                        type: string
+                        format: date
+                      timezone:
+                        type: string
+                  totals:
+                    type: object
+                    properties:
+                      services:
+                        type: integer
+                      payments:
+                        type: integer
+                      gross_amount:
+                        type: string
+                        example: '8908.50'
+                      commission_amount:
+                        type: string
+                      net_amount:
+                        type: string
+                      commission_owed:
+                        type: string
+                        description: Comisión que el proveedor todavía le debe a la plataforma.
+                      pending_settlement:
+                        type: string
+                        description: Neto de los ingresos que aún no se liquidan.
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        request_id:
+                          type: string
+                        branch:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                        category:
+                          type: string
+                        client_name:
+                          type: string
+                        completed_at:
+                          type:
+                            - string
+                            - 'null'
+                          format: date-time
+                        payments:
+                          type: integer
+                        gross_amount:
+                          type: string
+                        commission_amount:
+                          type: string
+                        net_amount:
+                          type: string
+                        commission_owed:
+                          type: string
+                        settled:
+                          type: boolean
+                        first_payment_at:
+                          type: string
+                          format: date-time
+                        last_payment_at:
+                          type: string
+                          format: date-time
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      total_pages:
+                        type: integer
+        '400':
+          description: >-
+            Filtros inválidos, o la cuenta no administra sucursales y no indicó `branch_id`
+            (`BRANCH_SCOPE_REQUIRED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
 components:
   parameters:

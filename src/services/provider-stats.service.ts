@@ -3,18 +3,17 @@ import { and, eq, exists, gte, inArray, lt, not, sql, type SQL } from 'drizzle-o
 import { db } from '../config/database.ts';
 import {
   branches,
-  business_supplier,
   employees,
   request_dispatches,
   reviews,
   service_request_events,
   service_requests,
-  suppliers,
 } from '../database/schema/tables.ts';
 import { BadRequestError } from '../errors/app-error.ts';
 import type { AuthenticatedUser } from '../middlewares/auth.middleware.ts';
 import { employeeProfileService } from './employee-profile.service.ts';
 import { checkBranchAccess } from './portfolio.service.ts';
+import { ownedBranchIds } from './provider-scope.ts';
 import {
   acceptanceRate,
   acceptedResponseSeconds,
@@ -82,13 +81,7 @@ async function resolveScope(
 
   const userId = BigInt(actor.id);
   if (actor.role === 'proveedor') {
-    const owned = await db
-      .select({ id: branches.UniqueID })
-      .from(branches)
-      .innerJoin(business_supplier, eq(business_supplier.business_id, branches.business_id))
-      .innerJoin(suppliers, eq(suppliers.UniqueID, business_supplier.supplier_id))
-      .where(and(eq(suppliers.user_id, userId), eq(business_supplier.active, true)));
-    const branchIds = owned.map((row) => row.id);
+    const branchIds = await ownedBranchIds(userId);
     if (branchIds.length) {
       return { branchIds, employeeIds: await employeesOf(branchIds), byEmployee: false };
     }
