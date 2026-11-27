@@ -6155,6 +6155,131 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/admin/dashboard:
+    get:
+      tags:
+        - Administración
+      summary: '[API-52] Resumen para el tablero del panel de administración'
+      description: >-
+        Lo pendiente es al momento: proveedores por aprobar o con documentación incompleta,
+        reportes abiertos por prioridad y la comisión que los proveedores deben en total
+        (`commissions.pending_total`). Lo demás es del periodo: solicitudes de proveedor
+        recibidas, servicios creados por estado, reportes levantados y las comisiones de los
+        cobros. Sin fechas, los últimos 30 días; el periodo se toma en la hora de la plataforma.
+      x-ticket: API-52
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Resumen del tablero.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          period:
+                            type: object
+                            properties:
+                              from:
+                                type: string
+                                format: date
+                              to:
+                                type: string
+                                format: date
+                              timezone:
+                                type: string
+                          suppliers:
+                            type: object
+                            properties:
+                              pending_review:
+                                type: integer
+                              awaiting_documents:
+                                type: integer
+                              approved_total:
+                                type: integer
+                              received_in_period:
+                                type: integer
+                          services:
+                            type: object
+                            properties:
+                              total:
+                                type: integer
+                              emergencies:
+                                type: integer
+                              by_status:
+                                type: object
+                                additionalProperties:
+                                  type: integer
+                                example:
+                                  pendiente: 2
+                                  aceptada: 1
+                                  agendada: 0
+                                  en_camino: 0
+                                  llegado: 1
+                                  completada: 12
+                                  cancelada: 3
+                                  expirada: 4
+                          reports:
+                            type: object
+                            properties:
+                              open:
+                                type: integer
+                              open_by_priority:
+                                type: object
+                                properties:
+                                  baja:
+                                    type: integer
+                                  media:
+                                    type: integer
+                                  alta:
+                                    type: integer
+                                  urgente:
+                                    type: integer
+                              created_in_period:
+                                type: integer
+                          commissions:
+                            type: object
+                            properties:
+                              payments:
+                                type: integer
+                              gross_amount:
+                                type: string
+                              commission_amount:
+                                type: string
+                              commission_paid:
+                                type: string
+                              commission_pending:
+                                type: string
+                              pending_total:
+                                type: string
+                                description: Comisión que los proveedores deben en total, de cualquier fecha.
+        '400':
+          description: Fechas inválidas, al revés o de más de 366 días.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
   parameters:
     Id:
