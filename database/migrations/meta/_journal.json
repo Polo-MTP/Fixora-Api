@@ -148,6 +148,13 @@
       "when": 1795421100000,
       "tag": "0020_api41_support_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795421200000,
+      "tag": "0021_api48_client_history",
+      "breakpoints": true
     }
   ]
 }

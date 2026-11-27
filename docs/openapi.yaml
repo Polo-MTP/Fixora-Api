@@ -73,6 +73,8 @@ tags:
     description: Restricciones temporales y marcas de usuarios problemáticos, aplicadas por Soporte o por la regla automática.
   - name: Soporte
     description: Bandeja de reportes de Soporte e historial auditable de un servicio.
+  - name: Historial del cliente
+    description: Historial de servicios del cliente con desglose, y el servicio en curso para el banner de la pantalla principal.
   - name: Pagos
     description: Registro y confirmación de pagos, historial y adeudos (API-37).
   - name: Administración
@@ -4447,6 +4449,147 @@ paths:
                         $ref: '#/components/schemas/BranchReviewsPage'
         '400':
           $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/me/services:
+    get:
+      tags:
+        - Historial del cliente
+      summary: Historial de servicios del cliente
+      description: |
+        Solo clientes. Sus servicios del más reciente al más antiguo, con fecha, proveedor, costo y estado.
+        Es una lista ligera: para el desglose completo de uno se usa `GET /api/me/services/{id}`.
+
+        `cost` es el total fijado al terminar cuando el servicio está `completada`, el estimado (precio acordado más
+        ajustes aprobados) mientras está en curso, y `null` si se canceló o expiró, porque no se cobra.
+        `payment_status` puede ser `pagado`, `parcial`, `por_confirmar`, `sin_pago` o `no_aplica`.
+      x-estado: implementado
+      x-ticket: API-48
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+          description: Uno o varios estados separados por coma, por ejemplo `completada` o `cancelada,expirada`. `en_camino` incluye los registros antiguos en curso.
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Página del historial.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ClientServiceItem'
+                      pagination:
+                        type: object
+                        properties:
+                          page:
+                            type: integer
+                          limit:
+                            type: integer
+                          total:
+                            type: integer
+                          total_pages:
+                            type: integer
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/me/services/active:
+    get:
+      tags:
+        - Historial del cliente
+      summary: Servicio en curso del cliente (banner)
+      description: |
+        Solo clientes. Devuelve el servicio en curso para el banner de la pantalla principal, o `active: null` si no
+        hay ninguno. Cuenta como en curso lo que está buscando técnico (`pendiente`), asignado (`aceptada`), en camino
+        (`en_camino`) o con el técnico en el lugar (`llegado`). Si hay más de uno, devuelve el más avanzado y
+        `active_count` indica cuántos hay.
+
+        `phase` sirve para elegir el texto del banner: `buscando_tecnico`, `tecnico_asignado`, `tecnico_en_camino` o
+        `tecnico_en_el_lugar`. `can_track` indica si ya se puede abrir el mapa
+        (`GET /api/service-requests/{id}/tracking`) y `can_chat` si hay chat con el técnico.
+      x-estado: implementado
+      x-ticket: API-48
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Servicio en curso.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ActiveClientService'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/me/services/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags:
+        - Historial del cliente
+      summary: Detalle de un servicio con desglose
+      description: |
+        Solo el cliente dueño; una solicitud ajena responde `404`. Trae categoría, proveedor, técnico (lo que se
+        guardó al aceptar), dirección, fechas, desglose de precio (precio base, ajustes y total), pago, la reseña del
+        cliente y los reportes que levantó sobre ese servicio.
+
+        `price.base_price` es lo acordado al aceptar; `price.total` es el total fijado al terminar cuando está
+        `completada`, o el estimado mientras sigue en curso, y `null` si se canceló o expiró.
+      x-estado: implementado
+      x-ticket: API-48
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Detalle del servicio.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ClientServiceDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -8934,6 +9077,437 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TimelineEntry'
+
+    ClientServiceProvider:
+      type:
+        - object
+        - 'null'
+      description: Sucursal que atiende. `null` mientras una emergencia aún no tiene técnico.
+      properties:
+        branch_id:
+          type: string
+        name:
+          type:
+            - string
+            - 'null'
+        business_name:
+          type:
+            - string
+            - 'null'
+        phone:
+          type:
+            - string
+            - 'null'
+
+    ClientServiceTechnician:
+      type:
+        - object
+        - 'null'
+      properties:
+        employee_id:
+          type: string
+        name:
+          type:
+            - string
+            - 'null'
+        photo_url:
+          type:
+            - string
+            - 'null'
+        vehicle:
+          type:
+            - object
+            - 'null'
+          properties:
+            plate:
+              type:
+                - string
+                - 'null'
+            brand:
+              type:
+                - string
+                - 'null'
+            model:
+              type:
+                - string
+                - 'null'
+            color:
+              type:
+                - string
+                - 'null'
+
+    ClientServiceItem:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pendiente, aceptada, agendada, en_camino, llegado, completada, cancelada, expirada]
+        phase:
+          type: string
+        is_emergency:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        scheduled_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        category:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        provider:
+          $ref: '#/components/schemas/ClientServiceProvider'
+        technician_name:
+          type:
+            - string
+            - 'null'
+        cost:
+          type:
+            - string
+            - 'null'
+          example: '420.00'
+        payment_status:
+          type: string
+          enum: [pagado, parcial, por_confirmar, sin_pago, no_aplica]
+        has_review:
+          type: boolean
+        can_review:
+          type: boolean
+        has_report:
+          type: boolean
+
+    ClientServiceDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        phase:
+          type: string
+        is_emergency:
+          type: boolean
+        description:
+          type: string
+        category:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        provider:
+          $ref: '#/components/schemas/ClientServiceProvider'
+        technician:
+          $ref: '#/components/schemas/ClientServiceTechnician'
+        address:
+          type:
+            - object
+            - 'null'
+          properties:
+            alias:
+              type:
+                - string
+                - 'null'
+            street:
+              type: string
+            num_ext:
+              type:
+                - string
+                - 'null'
+            num_int:
+              type:
+                - string
+                - 'null'
+            colony:
+              type: string
+            municipality:
+              type: string
+            state:
+              type: string
+            postal_code:
+              type: string
+            reference:
+              type:
+                - string
+                - 'null'
+            full:
+              type: string
+        location:
+          type:
+            - object
+            - 'null'
+          description: Coordenadas de una emergencia.
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+        dates:
+          type: object
+          properties:
+            created_at:
+              type: string
+              format: date-time
+            scheduled_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            accepted_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            arrived_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            completed_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+        canceled:
+          type:
+            - object
+            - 'null'
+          properties:
+            by:
+              type: string
+              enum: [cliente, proveedor, sistema]
+            reason:
+              type:
+                - string
+                - 'null'
+        price:
+          type: object
+          properties:
+            base_price:
+              type:
+                - string
+                - 'null'
+              description: Lo acordado al aceptar el servicio.
+            adjustments:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  amount:
+                    type: string
+                  reason:
+                    type: string
+                  description:
+                    type:
+                      - string
+                      - 'null'
+                  status:
+                    type: string
+                  counts_toward_total:
+                    type: boolean
+                  created_at:
+                    type: string
+                    format: date-time
+                  responded_at:
+                    type:
+                      - string
+                      - 'null'
+                    format: date-time
+                  paid_at:
+                    type:
+                      - string
+                      - 'null'
+                    format: date-time
+            adjustments_total:
+              type: string
+              description: Suma de los ajustes aprobados o pagados.
+            total:
+              type:
+                - string
+                - 'null'
+        payment:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [pagado, parcial, por_confirmar, sin_pago, no_aplica]
+            total_amount:
+              type: string
+            paid:
+              type: string
+            pending_confirmation:
+              type: string
+            balance_due:
+              type: string
+            has_debt:
+              type: boolean
+            payments:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  amount:
+                    type: string
+                  currency:
+                    type: string
+                  method:
+                    type: string
+                  reference:
+                    type:
+                      - string
+                      - 'null'
+                  status:
+                    type: string
+                  rejection_reason:
+                    type:
+                      - string
+                      - 'null'
+                  created_at:
+                    type: string
+                    format: date-time
+                  responded_at:
+                    type:
+                      - string
+                      - 'null'
+                    format: date-time
+                  paid_at:
+                    type:
+                      - string
+                      - 'null'
+                    format: date-time
+        review:
+          type: object
+          properties:
+            mine:
+              type:
+                - object
+                - 'null'
+              properties:
+                id:
+                  type: string
+                rating:
+                  type: integer
+                comment:
+                  type:
+                    - string
+                    - 'null'
+                created_at:
+                  type: string
+                  format: date-time
+            can_review:
+              type: boolean
+        reports:
+          type: array
+          description: Reportes, garantías y reclamaciones que el cliente levantó sobre este servicio.
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              folio:
+                type: string
+              type:
+                type: string
+              category:
+                type: string
+              status:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+              resolved_at:
+                type:
+                  - string
+                  - 'null'
+                format: date-time
+        can_track:
+          type: boolean
+        can_chat:
+          type: boolean
+
+    ActiveClientService:
+      type: object
+      properties:
+        active:
+          type:
+            - object
+            - 'null'
+          properties:
+            id:
+              type: string
+            status:
+              type: string
+            phase:
+              type: string
+              enum: [buscando_tecnico, tecnico_asignado, tecnico_en_camino, tecnico_en_el_lugar]
+            is_emergency:
+              type: boolean
+            category:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+            provider:
+              $ref: '#/components/schemas/ClientServiceProvider'
+            technician:
+              $ref: '#/components/schemas/ClientServiceTechnician'
+            address:
+              type:
+                - string
+                - 'null'
+            estimated_total:
+              type:
+                - string
+                - 'null'
+            created_at:
+              type: string
+              format: date-time
+            expires_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            scheduled_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            accepted_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            arrived_at:
+              type:
+                - string
+                - 'null'
+              format: date-time
+            can_track:
+              type: boolean
+            can_chat:
+              type: boolean
+        active_count:
+          type: integer
 
   responses:
     InvalidInput:
