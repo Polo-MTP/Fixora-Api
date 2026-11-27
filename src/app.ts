@@ -23,6 +23,7 @@ import portfolioRoutes from './routes/portfolio.routes.ts';
 import supplierDocumentRoutes from './routes/supplier-document.routes.ts';
 import employeeRoutes from './routes/employee.routes.ts';
 import technicianRoutes from './routes/technician.routes.ts';
+import agendaRoutes from './routes/agenda.routes.ts';
 import searchRoutes from './routes/search.routes.ts';
 import branchEmployeeRoutes from './routes/branch-employee.routes.ts';
 import serviceRequestRoutes from './routes/service-request-status.routes.ts';
@@ -89,6 +90,9 @@ app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/supplier-documents', supplierDocumentRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/technicians', technicianRoutes);
+
+// Agenda del proveedor: citas y bloqueos de horario (API-45)
+app.use('/api/agenda', agendaRoutes);
 
 // Búsqueda de proveedores por radio, categoría y filtros (API-23)
 app.use('/api/search', searchRoutes);

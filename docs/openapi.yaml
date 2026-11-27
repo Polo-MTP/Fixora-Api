@@ -77,6 +77,8 @@ tags:
     description: Historial de servicios del cliente con desglose, y el servicio en curso para el banner de la pantalla principal.
   - name: Pagos
     description: Registro y confirmación de pagos, historial y adeudos (API-37).
+  - name: Agenda
+    description: Citas y bloqueos de horario del técnico y de la sucursal (API-45).
   - name: Administración
     description: Revisión de proveedores y alta de personal interno.
   - name: Usuarios
@@ -5596,6 +5598,219 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/agenda:
+    get:
+      tags:
+        - Agenda
+      summary: '[API-45] Agenda de citas y bloqueos de uno o varios días'
+      description: >-
+        Citas (solicitudes con fecha) y bloqueos de horario, repartidos por día local de la
+        sucursal, con su horario de atención. Sin parámetros es la agenda del propio técnico; el
+        gerente ve toda su sucursal. Con `branch_id` (dueño, gerente o administrador) se ve toda
+        una sucursal y con `employee_id`, la de uno de sus técnicos. Las citas pendientes llevan
+        `needs_response: true`: el técnico todavía tiene que aceptarlas o rechazarlas.
+      x-ticket: API-45
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          description: Primer día (AAAA-MM-DD). Sin él, hoy en la zona horaria de la sucursal.
+          schema:
+            type: string
+            format: date
+        - name: days
+          in: query
+          description: Cuántos días (1 para el día, 7 para la semana; máximo 31).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 31
+            default: 1
+        - name: branch_id
+          in: query
+          schema:
+            type: string
+        - name: employee_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agenda del periodo.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Agenda'
+        '400':
+          description: >-
+            Fecha o número de días inválido, o la cuenta no atiende servicios y no indicó
+            `branch_id` (`AGENDA_SCOPE_REQUIRED`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agenda/blocks:
+    post:
+      tags:
+        - Agenda
+      summary: '[API-45] Bloquear un horario del técnico'
+      description: >-
+        Vacaciones, un asunto personal o un rato ocupado. Sin `employee_id` el bloqueo es del
+        propio técnico; el dueño o el gerente pueden bloquear a sus técnicos. Mientras dure, el
+        cálculo de horarios libres no ofrece ese rato.
+      x-ticket: API-45
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - starts_at
+                - ends_at
+                - reason
+              properties:
+                employee_id:
+                  type: string
+                starts_at:
+                  type: string
+                  format: date-time
+                ends_at:
+                  type: string
+                  format: date-time
+                reason:
+                  type: string
+                  enum: [vacaciones, personal, ocupado]
+            example:
+              starts_at: '2026-12-01T16:00:00Z'
+              ends_at: '2026-12-01T18:00:00Z'
+              reason: personal
+      responses:
+        '201':
+          description: Bloqueo creado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ScheduleBlock'
+        '400':
+          description: >-
+            Datos inválidos: el fin no es posterior al inicio, el bloqueo ya terminó o dura más
+            de 60 días.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/ScheduleConflict'
+
+  /api/agenda/blocks/{id}:
+    patch:
+      tags:
+        - Agenda
+      summary: '[API-45] Cambiar el horario o el motivo de un bloqueo'
+      x-ticket: API-45
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                starts_at:
+                  type: string
+                  format: date-time
+                ends_at:
+                  type: string
+                  format: date-time
+                reason:
+                  type: string
+                  enum: [vacaciones, personal, ocupado]
+      responses:
+        '200':
+          description: Bloqueo actualizado.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ScheduleBlock'
+        '400':
+          description: Datos inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ScheduleConflict'
+    delete:
+      tags:
+        - Agenda
+      summary: '[API-45] Quitar un bloqueo'
+      description: El horario vuelve a quedar libre para agendar.
+      x-ticket: API-45
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bloqueo eliminado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   parameters:
     Id:
@@ -5658,6 +5873,107 @@ components:
         default: 20
 
   schemas:
+    ScheduleBlock:
+      type: object
+      properties:
+        id:
+          type: string
+        employee_id:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          enum: [vacaciones, personal, ocupado]
+        created_at:
+          type: string
+          format: date-time
+
+    Agenda:
+      type: object
+      properties:
+        branch:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            timezone:
+              type: string
+              example: America/Monterrey
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        employees:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+        days:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              day_of_week:
+                type: integer
+                description: 0 = domingo.
+              hours:
+                type: array
+                description: Horario de atención de la sucursal ese día.
+                items:
+                  type: object
+                  properties:
+                    open_time:
+                      type: string
+                      example: '09:00'
+                    close_time:
+                      type: string
+                      example: '18:00'
+              appointments:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    request_id:
+                      type: string
+                    status:
+                      type: string
+                    needs_response:
+                      type: boolean
+                    starts_at:
+                      type: string
+                      format: date-time
+                    ends_at:
+                      type: string
+                      format: date-time
+                    employee_id:
+                      type: string
+                    category:
+                      type: string
+                    client_name:
+                      type: string
+                    zone:
+                      type: string
+              blocks:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScheduleBlock'
+
     RegisterClientRequest:
       type: object
       additionalProperties: false
@@ -9510,6 +9826,23 @@ components:
           type: integer
 
   responses:
+    ScheduleConflict:
+      description: >-
+        [API-45] El horario choca con otro bloqueo (`BLOCK_OVERLAP`) o con citas del técnico
+        (`SCHEDULE_CONFLICT`, con la lista en `details`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: SCHEDULE_CONFLICT
+            message: Tienes citas en ese horario. Recházalas o atiéndelas antes de bloquearlo.
+            details:
+              - request_id: '170'
+                status: pendiente
+                starts_at: '2026-12-01T17:00:00.000Z'
+                ends_at: '2026-12-01T18:00:00.000Z'
+
     InvalidInput:
       description: Faltan datos obligatorios o tienen un formato inválido.
       content:
