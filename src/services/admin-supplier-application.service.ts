@@ -27,6 +27,7 @@ import {
   SupplierVerificationEvent,
   SupplierApplicationResolvedEvent,
 } from '../events/events/domain-events.ts';
+import { revealFiscalId } from './fiscal-id.service.ts';
 
 const APPLICATION_STATES = [
   'pendiente',
@@ -404,11 +405,11 @@ export class AdminSupplierApplicationService {
       email: row.email,
       documents_pending: pending.count,
       comments: row.comments,
-      rfc: row.rfc,
+      rfc: revealFiscalId(row.rfc),
       business: row.business_id
         ? {
             name: row.business_name,
-            tax_identification: row.business_tax_identification,
+            tax_identification: revealFiscalId(row.business_tax_identification),
             email: row.business_email,
             phone: row.business_phone,
           }

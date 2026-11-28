@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import { authAccountRateLimit, authIpRateLimit } from '../middlewares/rate-limit.middleware.ts';
 import {
   loginController,
   refreshController,
@@ -16,7 +17,7 @@ const router = Router();
 // ============================================================================
 
 // Iniciar sesión.
-router.post('/login', loginController);
+router.post('/login', authIpRateLimit, authAccountRateLimit, loginController);
 
 // Renovar los tokens de una sesión.
 router.post('/refresh', refreshController);
@@ -29,12 +30,17 @@ router.post('/logout', logoutController);
 // ============================================================================
 
 // Registrar un cliente.
-router.post('/register', registerClientController);
+router.post('/register', authIpRateLimit, authAccountRateLimit, registerClientController);
 
 // Verificar correo electrónico.
-router.post('/verify-email', verifyEmailController);
+router.post('/verify-email', authIpRateLimit, authAccountRateLimit, verifyEmailController);
 
 // Reenviar código de verificación.
-router.post('/resend-verification', resendVerificationController);
+router.post(
+  '/resend-verification',
+  authIpRateLimit,
+  authAccountRateLimit,
+  resendVerificationController,
+);
 
 export default router;

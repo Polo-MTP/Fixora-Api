@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { getRecommendations } from '../services/recommendations.service.ts';
 import { searchService } from '../services/search.service.ts';
 import type { SearchSortOption } from '../types/search.types.ts';
 
@@ -41,6 +42,23 @@ export class SearchController {
         message: 'Proveedores encontrados exitosamente.',
         data: result.data,
         pagination: result.pagination,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/search/recommendations
+   * Servicios recomendados cerca del cliente para su pantalla principal (API-47).
+   */
+  async recommendations(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await getRecommendations(req.query);
+      res.status(200).json({
+        success: true,
+        message: 'Operación realizada correctamente.',
+        data: result.data,
       });
     } catch (error) {
       next(error);

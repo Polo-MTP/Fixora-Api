@@ -155,6 +155,13 @@
       "when": 1795421200000,
       "tag": "0021_api48_client_history",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795421300000,
+      "tag": "0022_api57_encrypt_fiscal_ids",
+      "breakpoints": true
     }
   ]
 }

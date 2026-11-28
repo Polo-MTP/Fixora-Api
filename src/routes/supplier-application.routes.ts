@@ -43,15 +43,9 @@ supplierApplicationsRouter.put(
   (req, res, next) => supplierApplicationController.replaceDocumentById(req, res, next),
 );
 
-// Consultar estado de solicitud (por query params ?application_id=... o ?email=...)
-supplierApplicationsRouter.get('/status', (req, res, next) =>
-  supplierApplicationController.getApplicationStatus(req, res, next),
-);
-
-// Consultar solicitud por ID
-supplierApplicationsRouter.get('/:id', (req, res, next) =>
-  supplierApplicationController.getApplicationById(req, res, next),
-);
+// API-43: ya no hay consultas públicas por id o por correo (/status y /:id). Regresaban el RFC,
+// el correo y el nombre del encargado de cualquier proveedor sin iniciar sesión, con ids
+// consecutivos. El proveedor ve la suya en GET /me y el Administrador en /api/admin.
 
 // Enviar solicitud de registro de proveedor (Asistente web de registro)
 supplierApplicationsRouter.post('/', optionalUpload, (req, res, next) =>

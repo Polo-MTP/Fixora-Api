@@ -63,26 +63,6 @@ export class SupplierApplicationController {
   }
 
   /**
-   * Consulta el estado de una solicitud (por email o applicationId)
-   * GET /api/supplier-applications/status?email=... ó ?application_id=...
-   */
-  async getApplicationStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const applicationId = req.query.application_id as string | undefined;
-      const email = req.query.email as string | undefined;
-
-      const status = await supplierApplicationService.getApplicationStatus({
-        applicationId,
-        email,
-      });
-
-      res.status(200).json({ data: status });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
    * Consulta la solicitud del proveedor autenticado
    * GET /api/supplier-applications/me
    */
@@ -98,24 +78,6 @@ export class SupplierApplicationController {
         message: 'Operación realizada correctamente.',
         data: status,
       });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * Consulta el estado de una solicitud por su ID en la URL
-   * GET /api/supplier-applications/:id
-   */
-  async getApplicationById(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const idParam = req.params.id;
-      const applicationId = Array.isArray(idParam) ? idParam[0] : idParam;
-      const status = await supplierApplicationService.getApplicationStatus({
-        applicationId,
-      });
-
-      res.status(200).json({ data: status });
     } catch (error) {
       next(error);
     }

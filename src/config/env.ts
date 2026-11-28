@@ -6,6 +6,14 @@ export const ENV = {
   DATABASE_URL: process.env.DATABASE_URL ?? '',
   REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
   CORS_ORIGIN: process.env.CORS_ORIGIN ?? '*',
+  // API-43: proxies de confianza (por ejemplo 1 detrás del proxy del servidor) para leer la IP real.
+  TRUST_PROXY: process.env.TRUST_PROXY ?? '',
+  // API-43: la documentación Swagger se apaga en producción salvo que se pida con API_DOCS=true.
+  API_DOCS: process.env.API_DOCS === 'true',
+
+  // API-57: llave de los campos cifrados (RFC, identificación fiscal). Obligatoria en producción;
+  // si se pierde, esos datos no se pueden recuperar.
+  DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY ?? '',
 
   // Resend
   RESEND_API_KEY: process.env.RESEND_API_KEY ?? '',

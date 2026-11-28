@@ -39,6 +39,7 @@ import type {
   SupplierType,
   UploadDocumentInput,
 } from '../types/supplier-application.types.ts';
+import { normalizeFiscalId, protectFiscalId, revealFiscalId } from './fiscal-id.service.ts';
 
 // ============================================================================
 // VALIDADORES AUXILIARES
@@ -271,12 +272,17 @@ export class SupplierApplicationService {
       );
     }
 
-    const rfcNormalized = input.rfc?.trim().toUpperCase() || null;
-    if (rfcNormalized) {
+    // API-57: el RFC se guarda cifrado; los duplicados se buscan por su índice ciego.
+    const rfcNormalized = normalizeFiscalId(input.rfc);
+    const rfcProtected = protectFiscalId(rfcNormalized);
+    const taxIdProtected = protectFiscalId(
+      normalizeFiscalId(input.business.tax_identification) ?? rfcNormalized,
+    );
+    if (rfcProtected.hash) {
       const [existingRfc] = await db
         .select({ id: suppliers.UniqueID })
         .from(suppliers)
-        .where(eq(suppliers.rfc, rfcNormalized))
+        .where(eq(suppliers.rfc_hash, rfcProtected.hash))
         .limit(1);
 
       if (existingRfc) {
@@ -334,7 +340,8 @@ export class SupplierApplicationService {
         .values({
           user_id: newUser.id,
           supplier_type: input.supplier_type,
-          rfc: rfcNormalized,
+          rfc: rfcProtected.encrypted,
+          rfc_hash: rfcProtected.hash,
           active: true,
         })
         .returning({ id: suppliers.UniqueID });
@@ -344,7 +351,8 @@ export class SupplierApplicationService {
         .insert(business)
         .values({
           name: businessName,
-          tax_identification: input.business.tax_identification?.trim() || rfcNormalized,
+          tax_identification: taxIdProtected.encrypted,
+          tax_identification_hash: taxIdProtected.hash,
           email: input.business.email ? validateEmail(input.business.email) : managerEmail,
           phone: input.business.phone?.trim() || input.manager.phone?.trim() || null,
         })
@@ -1062,7 +1070,7 @@ export class SupplierApplicationService {
       application_date: row.application_date,
       due_date: row.due_date,
       comments: row.comments,
-      rfc: row.rfc,
+      rfc: revealFiscalId(row.rfc),
       business_name: row.business_name || 'Sin nombre',
       manager_name: `${row.manager_name || ''} ${row.manager_lastname || ''}`.trim(),
       email: row.manager_email,

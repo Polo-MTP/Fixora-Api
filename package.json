@@ -17,6 +17,7 @@
     "db:seed": "tsx src/database/seed.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "storage:encrypt": "tsx src/scripts/encrypt-documents.ts",
     "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "keywords": [],
@@ -57,5 +58,11 @@
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.72.1",
     "@types/ws": "^8.18.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "body-parser": ">=2.4.0",
+      "qs": ">=6.16.1"
+    }
   }
 }
