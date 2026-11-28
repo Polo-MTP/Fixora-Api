@@ -27,6 +27,11 @@ import {
 } from '../events/events/domain-events.ts';
 import { storageService } from './storage.service.ts';
 import { sendSupplierApplicationReceivedEmail } from './email.service.ts';
+import {
+  ownerIsManager,
+  ownerManagerEmployee,
+  validateManagerIsOwner,
+} from '../utils/supplier-application-validation.ts';
 import type {
   CreateSupplierApplicationInput,
   ReplaceDocumentInput,
@@ -249,6 +254,9 @@ export class SupplierApplicationService {
       }
     }
 
+    // "Ser gerente de este local" (manager_is_owner) debe ser booleano y no chocar con otro gerente.
+    validateManagerIsOwner(input.branches);
+
     // 4. Verificar duplicados (correo y RFC)
     const [existingUser] = await db
       .select({ id: users.UniqueID })
@@ -349,6 +357,7 @@ export class SupplierApplicationService {
       });
 
       let branchesCreated = 0;
+      let ownerManagedBranches = 0;
 
       // 5.8 Crear Sucursales, Direcciones, Horarios y Categorías
       for (const branchInput of input.branches) {
@@ -415,6 +424,15 @@ export class SupplierApplicationService {
           });
         }
 
+        // "Ser gerente de este local": el proveedor queda como gerente con su misma cuenta,
+        // sin crear otro usuario.
+        if (ownerIsManager(branchInput)) {
+          await tx
+            .insert(employees)
+            .values(ownerManagerEmployee(input.supplier_type, newUser.id, newBranch.id));
+          ownerManagedBranches++;
+        }
+
         // Empleados iniciales (si aplica)
         if (Array.isArray(branchInput.employees) && branchInput.employees.length > 0) {
           for (const emp of branchInput.employees) {
@@ -452,6 +470,7 @@ export class SupplierApplicationService {
                 branch_id: newBranch.id,
                 can_attend: emp.can_attend ?? true,
                 active: true,
+                is_manager: emp.role === 'gerente',
               });
             }
           }
@@ -521,6 +540,7 @@ export class SupplierApplicationService {
         managerName: `${managerName} ${managerLastnameP}`,
         email: managerEmail,
         branchesCreated,
+        ownerManagedBranches,
         documentsCreated,
       };
     });
@@ -584,6 +604,7 @@ export class SupplierApplicationService {
       manager_name: result.managerName,
       email: result.email,
       branches_count: result.branchesCreated,
+      owner_managed_branches: result.ownerManagedBranches,
       documents_count: result.documentsCreated,
     };
   }

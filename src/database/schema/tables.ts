@@ -39,6 +39,7 @@ import {
   reviewDirectionEnum,
   reviewStatusEnum,
   reportCategoryEnum,
+  reportTypeEnum,
   reportPriorityEnum,
   reportStatusEnum,
   reportResolutionTypeEnum,
@@ -270,6 +271,8 @@ export const employees = pgTable('employees', {
     .references(() => branches.UniqueID),
   can_attend: boolean('can_attend').notNull().default(true),
   active: boolean('active').notNull().default(true),
+  // Gerente del local: una cuenta con rol gerente, o el propio proveedor con manager_is_owner.
+  is_manager: boolean('is_manager').notNull().default(false),
 });
 
 // ============================================================================
@@ -683,36 +686,67 @@ export const review_attachments = pgTable(
   }),
 );
 
-export const reports = pgTable('reports', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  reporter_id: bigint('reporter_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  request_id: bigint('request_id', { mode: 'bigint' }).references(() => service_requests.UniqueID),
-  category: reportCategoryEnum('category').notNull(),
-  priority: reportPriorityEnum('priority').notNull().default('media'),
-  status: reportStatusEnum('status').notNull().default('pendiente'),
-  description: text('description').notNull(),
-  assigned_to: bigint('assigned_to', { mode: 'bigint' }).references(() => users.UniqueID),
-  resolution_type: reportResolutionTypeEnum('resolution_type'),
-  resolution_note: text('resolution_note'),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-});
+export const reports = pgTable(
+  'reports',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    reporter_id: bigint('reporter_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    request_id: bigint('request_id', { mode: 'bigint' }).references(
+      () => service_requests.UniqueID,
+    ),
+    // Reporte, garantía o reclamación: el mismo mecanismo con otro tipo (API-40).
+    type: reportTypeEnum('type').notNull().default('reporte'),
+    // Folio legible: REP-2026-000123, GAR-... o REC-...
+    folio: varchar('folio', { length: 20 }).notNull(),
+    // Usuario señalado: la contraparte del que reporta en la solicitud.
+    reported_id: bigint('reported_id', { mode: 'bigint' }).references(() => users.UniqueID),
+    client_uuid: varchar('client_uuid', { length: 100 }),
+    category: reportCategoryEnum('category').notNull(),
+    priority: reportPriorityEnum('priority').notNull().default('media'),
+    status: reportStatusEnum('status').notNull().default('pendiente'),
+    description: text('description').notNull(),
+    assigned_to: bigint('assigned_to', { mode: 'bigint' }).references(() => users.UniqueID),
+    resolution_type: reportResolutionTypeEnum('resolution_type'),
+    resolution_note: text('resolution_note'),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+    updated_at: timestamp('updated_at').notNull().defaultNow(),
+    resolved_at: timestamp('resolved_at'),
+  },
+  (table) => ({
+    folioUnique: uniqueIndex('reports_folio_unique').on(table.folio),
+    reporterClientUuidUnique: uniqueIndex('reports_reporter_client_uuid_unique')
+      .on(table.reporter_id, table.client_uuid)
+      .where(sql`${table.client_uuid} IS NOT NULL`),
+    statusCreatedIdx: index('reports_status_created_idx').on(table.status, table.created_at),
+    reporterIdx: index('reports_reporter_idx').on(table.reporter_id, table.created_at),
+    requestIdx: index('reports_request_idx').on(table.request_id),
+  }),
+);
 
-export const reports_events = pgTable('reports_events', {
-  UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
-  report_id: bigint('report_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => reports.UniqueID),
-  author_id: bigint('author_id', { mode: 'bigint' })
-    .notNull()
-    .references(() => users.UniqueID),
-  type: reportEventTypeEnum('type').notNull(),
-  body: text('body').notNull(),
-  from_status: reportStatusEnum('from_status'),
-  to_status: reportStatusEnum('to_status'),
-  created_at: timestamp('created_at').notNull().defaultNow(),
-});
+export const reports_events = pgTable(
+  'reports_events',
+  {
+    UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
+    report_id: bigint('report_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => reports.UniqueID),
+    author_id: bigint('author_id', { mode: 'bigint' })
+      .notNull()
+      .references(() => users.UniqueID),
+    type: reportEventTypeEnum('type').notNull(),
+    body: text('body').notNull(),
+    from_status: reportStatusEnum('from_status'),
+    to_status: reportStatusEnum('to_status'),
+    // Nota interna de Soporte: no se muestra a quien reportó.
+    is_internal: boolean('is_internal').notNull().default(false),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    reportIdx: index('reports_events_report_idx').on(table.report_id, table.UniqueID),
+  }),
+);
 
 export const report_attachments = pgTable('report_attachments', {
   UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
