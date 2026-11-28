@@ -179,7 +179,9 @@ export const email_verification_codes = pgTable('email_verification_codes', {
 export const business = pgTable('business', {
   UniqueID: bigserial('UniqueID', { mode: 'bigint' }).primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
-  tax_identification: varchar('tax_identification', { length: 50 }).unique(),
+  // API-57: cifrada (ver fiscal-id.service.ts); el índice ciego es el que no se repite.
+  tax_identification: text('tax_identification'),
+  tax_identification_hash: varchar('tax_identification_hash', { length: 64 }).unique(),
   email: varchar('email', { length: 255 }),
   phone: varchar('phone', { length: 30 }),
 });
@@ -285,7 +287,9 @@ export const suppliers = pgTable('suppliers', {
     .notNull()
     .references(() => users.UniqueID),
   supplier_type: supplierTypeEnum('supplier_type').notNull(),
-  rfc: varchar('rfc', { length: 50 }).unique(),
+  // API-57: cifrado (ver fiscal-id.service.ts); el índice ciego es el que no se repite.
+  rfc: text('rfc'),
+  rfc_hash: varchar('rfc_hash', { length: 64 }).unique(),
   active: boolean('active').notNull().default(true),
 });
 

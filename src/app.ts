@@ -43,6 +43,8 @@ import {
   securityHeaders,
 } from './middlewares/security.middleware.ts';
 import { debtReminderService } from './services/debt-reminder.service.ts';
+import { fieldCipher } from './utils/field-encryption.ts';
+import { encryptLegacyFiscalIds } from './services/fiscal-id.service.ts';
 
 // Inicializar observadores del patrón Observer (Módulos 1 y 5)
 setupDomainEventObservers();
@@ -155,11 +157,24 @@ attachWebSocketServer(httpServer);
 
 async function startServer() {
   try {
+    // API-57: sin la llave de cifrado en producción, la API no arranca.
+    fieldCipher();
     connectRedis();
     void serviceRequestExpirationService.start().catch((error) => {
       console.error('No se pudo iniciar el worker de expiración:', error);
     });
     debtReminderService.start();
+    void encryptLegacyFiscalIds()
+      .then((done) => {
+        if (done.suppliers || done.business) {
+          console.log(
+            `[Cifrado] RFC cifrados: ${done.suppliers}; identificaciones fiscales: ${done.business}.`,
+          );
+        }
+      })
+      .catch((error) =>
+        console.error('[Cifrado] No se pudieron cifrar los datos fiscales:', error),
+      );
 
     httpServer.listen(port, () => {
       console.log(`Fixora API corriendo en http://localhost:${port} [${ENV.NODE_ENV}]`);

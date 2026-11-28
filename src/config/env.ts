@@ -11,6 +11,10 @@ export const ENV = {
   // API-43: la documentación Swagger se apaga en producción salvo que se pida con API_DOCS=true.
   API_DOCS: process.env.API_DOCS === 'true',
 
+  // API-57: llave de los campos cifrados (RFC, identificación fiscal). Obligatoria en producción;
+  // si se pierde, esos datos no se pueden recuperar.
+  DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY ?? '',
+
   // Resend
   RESEND_API_KEY: process.env.RESEND_API_KEY ?? '',
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL ?? '',
