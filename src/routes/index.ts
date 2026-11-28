@@ -6,6 +6,7 @@ import { supplierApplicationsRouter, documentTypesRouter } from './supplier-appl
 import { deviceTokenRouter } from './device-token.routes.ts';
 import { adminSupplierApplicationsRouter } from './admin-supplier-application.routes.ts';
 import { adminIncomeRouter } from './admin-income.routes.ts';
+import sanctionRouter from './sanction.routes.ts';
 
 export const apiRouter = Router();
 
@@ -15,5 +16,6 @@ apiRouter.use('/files', storageRouter);
 apiRouter.use('/supplier-applications', supplierApplicationsRouter);
 apiRouter.use('/document-types', documentTypesRouter);
 apiRouter.use('/me/devices', deviceTokenRouter);
+apiRouter.use('/sanctions', sanctionRouter);
 apiRouter.use('/admin', adminSupplierApplicationsRouter);
 apiRouter.use('/admin', adminIncomeRouter);

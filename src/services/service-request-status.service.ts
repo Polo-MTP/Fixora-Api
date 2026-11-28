@@ -31,6 +31,7 @@ import {
 import { eventBus } from '../events/event-bus.ts';
 import { ServiceRequestStatusChangedEvent } from '../events/events/domain-events.ts';
 import { listClientReviews } from './review.service.ts';
+import { getClientAlert } from './sanction.service.ts';
 import { storageService } from './storage.service.ts';
 import { trackingService } from './tracking.service.ts';
 import { displayName, partiesToShow, type VehicleView } from './active-service.rules.ts';
@@ -325,7 +326,7 @@ function signedFileUrl(fileKey: string | null | undefined): string | null {
   }
 }
 
-export async function serializeServiceRequestForResponse(requestId: bigint) {
+export async function serializeServiceRequestForResponse(requestId: bigint, viewer?: RequestActor) {
   const [request] = await db
     .select()
     .from(service_requests)
@@ -373,6 +374,11 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
     .where(eq(users.UniqueID, request.client_id))
     .limit(1);
   const clientReviews = await listClientReviews(request.client_id, CLIENT_REVIEWS_PREVIEW);
+  // API-42: el proveedor y Soporte ven si el cliente tiene marca o reportes; el propio cliente no.
+  const clientAlert =
+    viewer && viewer.role.trim().toLowerCase() !== 'cliente'
+      ? await getClientAlert(request.client_id)
+      : null;
   const [price] = request.branch_id
     ? await db
         .select({ amount: branches_categories.base_price })
@@ -486,6 +492,7 @@ export async function serializeServiceRequestForResponse(requestId: bigint) {
       rating_avg: normalizeNumber(clientReputation?.average) ?? 0,
       reviews_count: clientReputation?.total ?? 0,
       reviews: clientReviews,
+      alert: clientAlert,
     },
     address: address
       ? {
@@ -569,7 +576,7 @@ export async function listServiceRequests(
     .offset((page - 1) * limit);
 
   return {
-    data: await Promise.all(rows.map((row) => serializeServiceRequestForResponse(row.id))),
+    data: await Promise.all(rows.map((row) => serializeServiceRequestForResponse(row.id, actor))),
     pagination: {
       page,
       limit,
@@ -595,7 +602,7 @@ async function ensureRequestVisible(
 
 export async function getServiceRequest(requestId: bigint, actor: RequestActor) {
   await ensureRequestVisible(requestId, actor);
-  return serializeServiceRequestForResponse(requestId);
+  return serializeServiceRequestForResponse(requestId, actor);
 }
 
 export async function getServiceRequestEvents(requestId: bigint, actor: RequestActor) {

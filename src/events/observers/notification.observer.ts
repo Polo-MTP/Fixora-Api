@@ -17,6 +17,8 @@ import {
   type SupplierApplicationCreatedPayload,
   type ChatMessageSentPayload,
   type ReportCommentAddedPayload,
+  type SanctionAppliedPayload,
+  type SanctionLiftedPayload,
 } from '../events/domain-events.ts';
 import { db } from '../../config/database.ts';
 import {
@@ -30,6 +32,7 @@ import {
 } from '../../database/schema/tables.ts';
 import { fcmService } from '../../services/fcm.service.ts';
 import { hasActiveConnection } from '../../realtime/websocket.server.ts';
+import { formatSanctionDate, notifiesUser } from '../../utils/sanction-validation.ts';
 
 export interface NotificationRecord {
   userId: string;
@@ -257,6 +260,14 @@ export class NotificationObserver implements Observer<DomainEvent> {
         await this.handleReportComment(event.payload as ReportCommentAddedPayload);
         break;
 
+      case DOMAIN_EVENTS.SANCTION_APPLIED:
+        await this.handleSanctionApplied(event.payload as SanctionAppliedPayload);
+        break;
+
+      case DOMAIN_EVENTS.SANCTION_LIFTED:
+        await this.handleSanctionLifted(event.payload as SanctionLiftedPayload);
+        break;
+
       default:
         break;
     }
@@ -478,6 +489,40 @@ export class NotificationObserver implements Observer<DomainEvent> {
       message,
       entityType: 'report',
       entityId: reportId,
+    });
+  }
+
+  /** Aviso a la persona sancionada (API-42). Las marcas de usuario problemático son internas. */
+  private async handleSanctionApplied(payload: SanctionAppliedPayload): Promise<void> {
+    if (!notifiesUser(payload.type)) return;
+
+    const isRestriction = payload.type === 'restriccion_temporal';
+    const until = payload.endsAt ? ` hasta el ${formatSanctionDate(new Date(payload.endsAt))}` : '';
+    await this.dispatch({
+      userId: payload.userId,
+      type: 'sancion',
+      title: isRestriction ? 'Restricción temporal en tu cuenta' : 'Aviso sobre tu cuenta',
+      message: isRestriction
+        ? `No podrás crear solicitudes nuevas${until}. Motivo: ${payload.reason}`
+        : `Tu cuenta recibió una marca de baja reputación. Motivo: ${payload.reason}`,
+      entityType: 'sanction',
+      entityId: payload.sanctionId,
+    });
+  }
+
+  private async handleSanctionLifted(payload: SanctionLiftedPayload): Promise<void> {
+    if (!notifiesUser(payload.type)) return;
+
+    await this.dispatch({
+      userId: payload.userId,
+      type: 'sancion',
+      title: 'Se retiró una sanción de tu cuenta',
+      message:
+        payload.type === 'restriccion_temporal'
+          ? 'Ya puedes crear solicitudes nuevas.'
+          : 'Se retiró la marca de baja reputación de tu cuenta.',
+      entityType: 'sanction',
+      entityId: payload.sanctionId,
     });
   }
 

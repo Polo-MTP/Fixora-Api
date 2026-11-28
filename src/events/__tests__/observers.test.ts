@@ -128,7 +128,10 @@ describe('Observadores desacoplados de dominio', () => {
       });
 
       const summary = await bus.notify(event);
-      assert.equal(summary.succeeded, 3);
+
+      assert.equal(summary.totalObservers, 4);
+      assert.equal(summary.succeeded, 4);
+      assert.equal(summary.failed, 0);
 
       // 1. Notificación
       assert.equal(notificationRecords.length, 1);

@@ -18,6 +18,8 @@ export const DOMAIN_EVENTS = {
   CHAT_MESSAGES_READ: 'chat.messages_read',
   REVIEW_CREATED: 'review.created',
   REPORT_COMMENT_ADDED: 'report.comment_added',
+  SANCTION_APPLIED: 'sanction.applied',
+  SANCTION_LIFTED: 'sanction.lifted',
 } as const;
 
 export abstract class BaseDomainEvent<T> implements DomainEvent<T> {
@@ -404,5 +406,44 @@ export interface ReportCommentAddedPayload {
 export class ReportCommentAddedEvent extends BaseDomainEvent<ReportCommentAddedPayload> {
   constructor(payload: ReportCommentAddedPayload, eventId?: string, occurredOn?: Date) {
     super(DOMAIN_EVENTS.REPORT_COMMENT_ADDED, payload.reportId, payload, eventId, occurredOn);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 9. Sanciones (API-42)
+// ---------------------------------------------------------------------------
+
+export type SanctionKind = 'restriccion_temporal' | 'baja_reputacion' | 'usuario_problematico';
+
+export interface SanctionAppliedPayload {
+  sanctionId: string;
+  userId: string;
+  type: SanctionKind;
+  reason: string;
+  /** Fin de la sanción en ISO; null cuando no vence. */
+  endsAt: string | null;
+  /** 'manual' (Soporte) o 'automatica' (regla de reportes confirmados). */
+  source: 'manual' | 'automatica';
+  appliedBy: string;
+  reportId: string | null;
+}
+
+export class SanctionAppliedEvent extends BaseDomainEvent<SanctionAppliedPayload> {
+  constructor(payload: SanctionAppliedPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.SANCTION_APPLIED, payload.sanctionId, payload, eventId, occurredOn);
+  }
+}
+
+export interface SanctionLiftedPayload {
+  sanctionId: string;
+  userId: string;
+  type: SanctionKind;
+  liftedBy: string;
+  reason: string;
+}
+
+export class SanctionLiftedEvent extends BaseDomainEvent<SanctionLiftedPayload> {
+  constructor(payload: SanctionLiftedPayload, eventId?: string, occurredOn?: Date) {
+    super(DOMAIN_EVENTS.SANCTION_LIFTED, payload.sanctionId, payload, eventId, occurredOn);
   }
 }

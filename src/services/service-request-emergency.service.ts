@@ -26,6 +26,7 @@ import {
   ServiceRequestDispatchedEvent,
   ServiceRequestStatusChangedEvent,
 } from '../events/events/domain-events.ts';
+import { assertClientNotRestricted } from './sanction.service.ts';
 import { getServiceRequest } from './service-request-status.service.ts';
 import { redisKeys } from '../utils/redis-keys.ts';
 import { timerService } from './timer.service.ts';
@@ -339,6 +340,9 @@ export async function createEmergencyServiceRequest(
     )
     .limit(1);
   if (existing) return await getServiceRequest(existing.id, actor);
+
+  // API-42: con una restricción temporal vigente no se pueden crear solicitudes nuevas.
+  await assertClientNotRestricted(clientId);
 
   const [category] = await db
     .select({ id: categories.UniqueID, name: categories.name })

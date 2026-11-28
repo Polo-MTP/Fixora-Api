@@ -1,3 +1,4 @@
+
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -5,6 +6,7 @@ import { db, closeDatabase } from '../../config/database.ts';
 import {
   categories,
   employees,
+  income_records,
   notifications,
   price_adjustment,
   roles,
@@ -37,6 +39,7 @@ describe('API-37: reglas del pago', () => {
       ],
       true,
     );
+
     assert.deepEqual(summary, {
       total_amount: '450.50',
       paid: '200.00',
@@ -44,6 +47,7 @@ describe('API-37: reglas del pago', () => {
       balance_due: '250.50',
       has_debt: true,
     });
+
     // Sin finalizar no es adeudo aunque falte pagar.
     assert.equal(summarizePayments('300.00', [], false).has_debt, false);
     assert.equal(
@@ -59,14 +63,17 @@ describe('API-37: reglas del pago', () => {
       reference: null,
       clientUuid: null,
     });
+
     assert.equal(
       validatePayment({ method: 'transferencia', amount: '99.9', reference: ' SPEI 123 ' })
         .reference,
       'SPEI 123',
     );
+
     assert.throws(() => validatePayment({ method: 'tarjeta' }), {
       code: 'PAYMENT_METHOD_UNAVAILABLE',
     });
+
     for (const body of [
       {},
       { method: 'bitcoin' },
@@ -94,16 +101,24 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       .innerJoin(roles, eq(users.role_id, roles.UniqueID))
       .where(eq(roles.name, 'cliente'))
       .limit(1);
+
     const [category] = await db.select({ id: categories.UniqueID }).from(categories).limit(1);
+
     const [employee] = await db
-      .select({ id: employees.UniqueID, userId: employees.user_id, branchId: employees.branch_id })
+      .select({
+        id: employees.UniqueID,
+        userId: employees.user_id,
+        branchId: employees.branch_id,
+      })
       .from(employees)
       .where(eq(employees.active, true))
       .limit(1);
+
     if (!clientRow || !category || !employee) return;
 
     client = { id: clientRow.id.toString(), role: 'cliente' };
     technician = { id: employee.userId.toString(), role: 'empleado' };
+
     const base = {
       client_id: clientRow.id,
       category_id: category.id,
@@ -112,6 +127,7 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       agreed_price: '300.00',
       accepted_at: new Date(),
     };
+
     const [done] = await db
       .insert(service_requests)
       .values({
@@ -123,13 +139,20 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
         completed_at: new Date(),
       })
       .returning({ id: service_requests.UniqueID });
+
     const [arrived] = await db
       .insert(service_requests)
-      .values({ ...base, description: 'Prueba de pagos sin finalizar', status: 'llegado' })
+      .values({
+        ...base,
+        description: 'Prueba de pagos sin finalizar',
+        status: 'llegado',
+      })
       .returning({ id: service_requests.UniqueID });
+
     requestId = done.id;
     inProgressId = arrived.id;
     created.push(done.id, arrived.id);
+
     await db.insert(price_adjustment).values({
       request_id: done.id,
       amount: '150.50',
@@ -137,13 +160,30 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       status: 'aprobado',
       declared_by: employee.userId,
     });
+
     ready = true;
   });
 
   after(async () => {
     if (created.length) {
+      // Eliminar primero los registros que tienen una FK hacia service_payments.
+      await db
+        .delete(income_records)
+        .where(
+          inArray(
+            income_records.payment_id,
+            db
+              .select({ id: service_payments.UniqueID })
+              .from(service_payments)
+              .where(inArray(service_payments.request_id, created)),
+          ),
+        );
+
+      // Después de eliminar sus dependencias, eliminar los pagos.
       await db.delete(service_payments).where(inArray(service_payments.request_id, created));
+
       await db.delete(price_adjustment).where(inArray(price_adjustment.request_id, created));
+
       await db
         .delete(notifications)
         .where(
@@ -152,8 +192,10 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
             inArray(notifications.entity_id, created),
           ),
         );
+
       await db.delete(service_requests).where(inArray(service_requests.UniqueID, created));
     }
+
     await closeDatabase();
   });
 
@@ -167,9 +209,11 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
     await assert.rejects(registerPayment(inProgressId, client, { method: 'efectivo' }), {
       code: 'INVALID_REQUEST_STATUS',
     });
+
     await assert.rejects(registerPayment(requestId, technician, { method: 'efectivo' }), {
       statusCode: 403,
     });
+
     await assert.rejects(
       registerPayment(requestId, client, { method: 'efectivo', amount: '500' }),
       { code: 'AMOUNT_EXCEEDS_BALANCE' },
@@ -181,15 +225,19 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       reference: 'SPEI 4821',
       client_uuid: 'pago-1',
     });
+
     assert.equal(first.created, true);
     assert.equal(first.payment.status, 'pendiente');
+
     const retry = await registerPayment(requestId, client, {
       method: 'transferencia',
       amount: '200',
       client_uuid: 'pago-1',
     });
+
     assert.equal(retry.created, false);
     assert.equal(retry.payment.id, first.payment.id);
+
     await assert.rejects(registerPayment(requestId, client, { method: 'efectivo' }), {
       code: 'PAYMENT_PENDING',
     });
@@ -199,6 +247,7 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       respondPayment(requestId, BigInt(first.payment.id), client, 'completado', {}),
       { statusCode: 403 },
     );
+
     const confirmed = await respondPayment(
       requestId,
       BigInt(first.payment.id),
@@ -206,10 +255,12 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       'completado',
       {},
     );
+
     assert.equal(confirmed.payment.status, 'completado');
     assert.ok(confirmed.payment.paid_at);
     assert.equal(confirmed.summary.balance_due, '250.50');
     assert.equal(confirmed.summary.has_debt, true);
+
     await assert.rejects(
       respondPayment(requestId, BigInt(first.payment.id), technician, 'completado', {}),
       { code: 'PAYMENT_ALREADY_RESPONDED' },
@@ -218,13 +269,17 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
     // Aparece como adeudo para los dos lados.
     const clientDebts = await listMyDebts(client);
     const debt = clientDebts.debts.find((item) => item.request_id === requestId.toString());
+
     assert.equal(debt?.balance_due, '250.50');
+
     const providerDebts = await listMyDebts(technician);
     assert.ok(providerDebts.debts.some((item) => item.request_id === requestId.toString()));
 
     // Sin monto paga todo lo que falta; el proveedor dice que no le llegó.
     const second = await registerPayment(requestId, client, { method: 'efectivo' });
+
     assert.equal(second.payment.amount, '250.50');
+
     const rejected = await respondPayment(
       requestId,
       BigInt(second.payment.id),
@@ -232,11 +287,13 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       'fallido',
       { reason: 'No me llegó el efectivo completo' },
     );
+
     assert.equal(rejected.payment.status, 'fallido');
     assert.equal(rejected.payment.rejection_reason, 'No me llegó el efectivo completo');
     assert.equal(rejected.summary.balance_due, '250.50');
 
     const third = await registerPayment(requestId, client, { method: 'efectivo' });
+
     const paid = await respondPayment(
       requestId,
       BigInt(third.payment.id),
@@ -244,6 +301,7 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       'completado',
       {},
     );
+
     assert.equal(paid.summary.balance_due, '0.00');
     assert.equal(paid.summary.has_debt, false);
 
@@ -252,20 +310,29 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       .select()
       .from(price_adjustment)
       .where(eq(price_adjustment.request_id, requestId));
+
     assert.equal(adjustment.status, 'pagado');
+
     const detail = await listRequestPayments(requestId, client);
+
     assert.equal(detail.summary.total_amount, '450.50');
     assert.equal(detail.summary.paid, '450.50');
     assert.equal(detail.payments.length, 3);
+
     await assert.rejects(registerPayment(requestId, client, { method: 'efectivo' }), {
       code: 'NOTHING_TO_PAY',
     });
+
     assert.ok(
       !(await listMyDebts(client)).debts.some((item) => item.request_id === requestId.toString()),
     );
 
     const history = await listMyPayments(client, { page: 1, limit: 50 });
-    assert.equal(history.data.filter((item) => item.request_id === requestId.toString()).length, 3);
+
+    assert.equal(
+      history.data.filter((item) => item.request_id === requestId.toString()).length,
+      3,
+    );
   });
 
   it('recuerda el adeudo un día después y no repite el mismo día', async (t) => {
@@ -273,10 +340,12 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
       t.skip('La base local no tiene un cliente, una categoría y un técnico activo.');
       return;
     }
+
     const [source] = await db
       .select()
       .from(service_requests)
       .where(eq(service_requests.UniqueID, inProgressId));
+
     const [debtRequest] = await db
       .insert(service_requests)
       .values({
@@ -289,31 +358,48 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
         agreed_price: '300.00',
       })
       .returning({ id: service_requests.UniqueID });
+
     created.push(debtRequest.id);
+
     const completedAt = new Date('2026-01-10T12:00:00Z');
+
     await db
       .update(service_requests)
-      .set({ status: 'completada', total_amount: '300.00', completed_at: completedAt })
+      .set({
+        status: 'completada',
+        total_amount: '300.00',
+        completed_at: completedAt,
+      })
       .where(eq(service_requests.UniqueID, debtRequest.id));
 
     const reminders: DebtReminderPayload[] = [];
+
     const listener = {
       name: 'DebtReminderTestListener',
       handle: async (event: DomainEvent) => {
         reminders.push(event.payload as DebtReminderPayload);
       },
     };
+
     eventBus.register(DOMAIN_EVENTS.DEBT_REMINDER, listener);
+
     try {
-      const mine = () => reminders.filter((item) => item.requestId === debtRequest.id.toString());
+      const mine = () =>
+        reminders.filter((item) => item.requestId === debtRequest.id.toString());
 
       // Antes de un día no se recuerda.
       await sendDueDebtReminders(new Date(completedAt.getTime() + 20 * 3_600_000));
+
       assert.equal(mine().length, 0);
 
       await sendDueDebtReminders(new Date(completedAt.getTime() + 25 * 3_600_000));
+
       assert.deepEqual(mine(), [
-        { requestId: debtRequest.id.toString(), clientId: client.id, balanceDue: '300.00' },
+        {
+          requestId: debtRequest.id.toString(),
+          clientId: client.id,
+          balanceDue: '300.00',
+        },
       ]);
 
       // Ya se mandó uno hace una hora: hoy no se repite.
@@ -326,7 +412,9 @@ describe('API-37: el cliente paga y el proveedor confirma', () => {
         entity_id: debtRequest.id,
         created_at: new Date(completedAt.getTime() + 25 * 3_600_000),
       });
+
       await sendDueDebtReminders(new Date(completedAt.getTime() + 26 * 3_600_000));
+
       assert.equal(mine().length, 1);
     } finally {
       eventBus.unregister(DOMAIN_EVENTS.DEBT_REMINDER, listener.name);

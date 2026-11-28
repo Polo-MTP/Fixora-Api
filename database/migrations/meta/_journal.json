@@ -134,6 +134,13 @@
       "when": 1795420900000,
       "tag": "0018_manager_is_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795421000000,
+      "tag": "0019_api42_sanctions",
+      "breakpoints": true
     }
   ]
 }

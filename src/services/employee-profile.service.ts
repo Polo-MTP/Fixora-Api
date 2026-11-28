@@ -1,4 +1,3 @@
-
 import { and, eq } from 'drizzle-orm';
 import { db } from '../config/database.ts';
 import {
@@ -30,10 +29,7 @@ import type {
 export function assertProfilePhotoKey(photoKey: string, allowedOwnerIds: string[]): void {
   const segments = photoKey.split('/');
   const ownerId = storageService.getFileOwnerId(photoKey);
-  const isPhoto =
-    segments[0] === 'photos' &&
-    !segments.includes('..') &&
-    !photoKey.includes('\\');
+  const isPhoto = segments[0] === 'photos' && !segments.includes('..') && !photoKey.includes('\\');
 
   if (!isPhoto || ownerId === null || !allowedOwnerIds.includes(ownerId)) {
     throw new BadRequestError(
@@ -158,12 +154,7 @@ export class EmployeeProfileService {
         active: employee_vehicles.active,
       })
       .from(employee_vehicles)
-      .where(
-        and(
-          eq(employee_vehicles.employee_id, employeeId),
-          eq(employee_vehicles.active, true),
-        ),
-      )
+      .where(and(eq(employee_vehicles.employee_id, employeeId), eq(employee_vehicles.active, true)))
       .limit(1);
 
     let photoUrl: string | null = null;
@@ -199,14 +190,14 @@ export class EmployeeProfileService {
       },
       vehicle: vehicleRow
         ? {
-          id: vehicleRow.id.toString(),
-          employee_id: vehicleRow.employee_id.toString(),
-          plate: vehicleRow.plate,
-          brand: vehicleRow.brand,
-          model: vehicleRow.model,
-          color: vehicleRow.color,
-          active: vehicleRow.active,
-        }
+            id: vehicleRow.id.toString(),
+            employee_id: vehicleRow.employee_id.toString(),
+            plate: vehicleRow.plate,
+            brand: vehicleRow.brand,
+            model: vehicleRow.model,
+            color: vehicleRow.color,
+            active: vehicleRow.active,
+          }
         : null,
     };
   }
@@ -220,30 +211,19 @@ export class EmployeeProfileService {
     user: AuthenticatedUser,
   ): Promise<EmployeeProfileResponse> {
     if (input.bio && input.bio.length > 1000) {
-      throw new BadRequestError(
-        'La biografía no puede exceder los 1000 caracteres.',
-      );
+      throw new BadRequestError('La biografía no puede exceder los 1000 caracteres.');
     }
 
     const employeeId = BigInt(employeeIdInput);
     const access = await this.checkEmployeeAccess(employeeId, user);
 
-    const photoKey =
-      input.photo_key !== undefined
-        ? input.photo_key?.trim() || null
-        : undefined;
+    const photoKey = input.photo_key !== undefined ? input.photo_key?.trim() || null : undefined;
 
-    const bio =
-      input.bio !== undefined
-        ? input.bio?.trim() || null
-        : undefined;
+    const bio = input.bio !== undefined ? input.bio?.trim() || null : undefined;
 
     if (photoKey) {
       // La foto debe pertenecer al empleado o al usuario que edita el perfil.
-      assertProfilePhotoKey(photoKey, [
-        access.userId.toString(),
-        user.id,
-      ]);
+      assertProfilePhotoKey(photoKey, [access.userId.toString(), user.id]);
     }
 
     const [existing] = await db
@@ -258,15 +238,8 @@ export class EmployeeProfileService {
     // API-55: la foto la ve el cliente al aceptar el servicio.
     // Se impide modificarla mientras exista un servicio activo.
     // La biografía sí se puede editar.
-    if (
-      photoKey !== undefined &&
-      photoKey !== (existing?.photo_key ?? null)
-    ) {
-      await assertEmployeeHasNoActiveService(
-        employeeId,
-        'foto',
-        access.userId === BigInt(user.id),
-      );
+    if (photoKey !== undefined && photoKey !== (existing?.photo_key ?? null)) {
+      await assertEmployeeHasNoActiveService(employeeId, 'foto', access.userId === BigInt(user.id));
     }
 
     if (existing) {
@@ -343,12 +316,7 @@ export class EmployeeProfileService {
         active: employee_vehicles.active,
       })
       .from(employee_vehicles)
-      .where(
-        and(
-          eq(employee_vehicles.employee_id, employeeId),
-          eq(employee_vehicles.active, true),
-        ),
-      )
+      .where(and(eq(employee_vehicles.employee_id, employeeId), eq(employee_vehicles.active, true)))
       .limit(1);
 
     if (!vehicle) {
@@ -374,44 +342,20 @@ export class EmployeeProfileService {
     input: EmployeeVehicleInput,
     user: AuthenticatedUser,
   ): Promise<EmployeeVehicleResponse> {
-    if (
-      !input.plate ||
-      typeof input.plate !== 'string' ||
-      !input.plate.trim()
-    ) {
-      throw new BadRequestError(
-        'Los campos plate, brand, model y color son obligatorios.',
-      );
+    if (!input.plate || typeof input.plate !== 'string' || !input.plate.trim()) {
+      throw new BadRequestError('Los campos plate, brand, model y color son obligatorios.');
     }
 
-    if (
-      !input.brand ||
-      typeof input.brand !== 'string' ||
-      !input.brand.trim()
-    ) {
-      throw new BadRequestError(
-        'Los campos plate, brand, model y color son obligatorios.',
-      );
+    if (!input.brand || typeof input.brand !== 'string' || !input.brand.trim()) {
+      throw new BadRequestError('Los campos plate, brand, model y color son obligatorios.');
     }
 
-    if (
-      !input.model ||
-      typeof input.model !== 'string' ||
-      !input.model.trim()
-    ) {
-      throw new BadRequestError(
-        'Los campos plate, brand, model y color son obligatorios.',
-      );
+    if (!input.model || typeof input.model !== 'string' || !input.model.trim()) {
+      throw new BadRequestError('Los campos plate, brand, model y color son obligatorios.');
     }
 
-    if (
-      !input.color ||
-      typeof input.color !== 'string' ||
-      !input.color.trim()
-    ) {
-      throw new BadRequestError(
-        'Los campos plate, brand, model y color son obligatorios.',
-      );
+    if (!input.color || typeof input.color !== 'string' || !input.color.trim()) {
+      throw new BadRequestError('Los campos plate, brand, model y color son obligatorios.');
     }
 
     const plate = input.plate.trim().toUpperCase();
@@ -419,10 +363,7 @@ export class EmployeeProfileService {
     const model = input.model.trim();
     const color = input.color.trim();
 
-    const active =
-      input.active !== undefined
-        ? Boolean(input.active)
-        : true;
+    const active = input.active !== undefined ? Boolean(input.active) : true;
 
     const employeeId = BigInt(employeeIdInput);
     const access = await this.checkEmployeeAccess(employeeId, user);
@@ -567,12 +508,7 @@ export class EmployeeProfileService {
       .innerJoin(users, eq(employees.user_id, users.UniqueID))
       .innerJoin(roles, eq(users.role_id, roles.UniqueID))
       .leftJoin(personal_data, eq(users.UniqueID, personal_data.user_id))
-      .where(
-        and(
-          eq(employees.branch_id, branchId),
-          eq(employees.active, true),
-        ),
-      );
+      .where(and(eq(employees.branch_id, branchId), eq(employees.active, true)));
 
     if (employeeRows.length === 0) {
       return [];
@@ -588,9 +524,7 @@ export class EmployeeProfileService {
       })
       .from(employee_profiles)
       .where(
-        employeeIds.length === 1
-          ? eq(employee_profiles.employee_id, employeeIds[0])
-          : undefined,
+        employeeIds.length === 1 ? eq(employee_profiles.employee_id, employeeIds[0]) : undefined,
       );
 
     const vehicleRows = await db
@@ -606,21 +540,15 @@ export class EmployeeProfileService {
       .from(employee_vehicles)
       .where(
         and(
-          employeeIds.length === 1
-            ? eq(employee_vehicles.employee_id, employeeIds[0])
-            : undefined,
+          employeeIds.length === 1 ? eq(employee_vehicles.employee_id, employeeIds[0]) : undefined,
           eq(employee_vehicles.active, true),
         ),
       );
 
     return employeeRows.map((e) => {
-      const prof = profileRows.find(
-        (p) => p.employee_id === e.id,
-      );
+      const prof = profileRows.find((p) => p.employee_id === e.id);
 
-      const veh = vehicleRows.find(
-        (v) => v.employee_id === e.id,
-      );
+      const veh = vehicleRows.find((v) => v.employee_id === e.id);
 
       let photoUrl: string | null = null;
 
@@ -655,14 +583,14 @@ export class EmployeeProfileService {
         },
         vehicle: veh
           ? {
-            id: veh.id.toString(),
-            employee_id: veh.employee_id.toString(),
-            plate: veh.plate,
-            brand: veh.brand,
-            model: veh.model,
-            color: veh.color,
-            active: veh.active,
-          }
+              id: veh.id.toString(),
+              employee_id: veh.employee_id.toString(),
+              plate: veh.plate,
+              brand: veh.brand,
+              model: veh.model,
+              color: veh.color,
+              active: veh.active,
+            }
           : null,
       };
     });
@@ -671,9 +599,7 @@ export class EmployeeProfileService {
   /**
    * Obtiene el perfil de empleado del usuario que tiene la sesión iniciada.
    */
-  async getMyEmployeeProfile(
-    user: AuthenticatedUser,
-  ): Promise<EmployeeDetailResponse> {
+  async getMyEmployeeProfile(user: AuthenticatedUser): Promise<EmployeeDetailResponse> {
     const [emp] = await db
       .select({
         id: employees.UniqueID,
@@ -683,9 +609,7 @@ export class EmployeeProfileService {
       .limit(1);
 
     if (!emp) {
-      throw new NotFoundError(
-        'No tienes una asignación de empleado o técnico activa.',
-      );
+      throw new NotFoundError('No tienes una asignación de empleado o técnico activa.');
     }
 
     return this.getEmployeeDetail(emp.id, user);
