@@ -120,6 +120,12 @@ export class StorageController {
       );
       res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
 
+      // API-58: los documentos cifrados se descifran en memoria (máximo 10 MB) antes de enviarlos.
+      if (fileInfo.encrypted) {
+        res.end(await storageService.readFileContent(fileKey));
+        return;
+      }
+
       const fileStream = fs.createReadStream(fileInfo.fullPath);
       fileStream.on('error', (streamError) => {
         next(streamError);

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { ENV } from '../config/env.ts';
+import { ENCRYPTED_FILE_OVERHEAD, fileCipher, isEncryptedFile } from '../utils/field-encryption.ts';
 import {
   BadRequestError,
   ForbiddenError,
@@ -129,6 +130,14 @@ export class StorageService {
     }
 
     return resolved;
+  }
+
+  /**
+   * API-58: los documentos (identificaciones, comprobantes, certificados) se guardan cifrados. Las
+   * fotos y evidencias no: no son datos personales de identidad y se sirven muy seguido.
+   */
+  public shouldEncrypt(fileKey: string): boolean {
+    return fileKey.replace(/\\/g, '/').replace(/^\/+/, '').startsWith('documents/');
   }
 
   /**
@@ -268,8 +277,9 @@ export class StorageService {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    // Escribir archivo al disco
-    await fs.promises.writeFile(fullPath, file.buffer);
+    // Escribir archivo al disco; los documentos, cifrados (API-58). El hash es del original.
+    const content = this.shouldEncrypt(fileKey) ? fileCipher().encrypt(file.buffer) : file.buffer;
+    await fs.promises.writeFile(fullPath, content);
 
     return {
       file_key: fileKey,
@@ -404,8 +414,11 @@ export class StorageService {
   public async getFileForDownload(fileKey: string): Promise<{
     fullPath: string;
     mimeType: string;
+    /** Tamaño del archivo original (sin el cifrado). */
     sizeBytes: number;
     filename: string;
+    /** API-58: si está cifrado hay que leerlo con readFileContent y no directo del disco. */
+    encrypted: boolean;
   }> {
     const fullPath = this.resolveSafePath(fileKey);
 
@@ -418,12 +431,14 @@ export class StorageService {
       const ext = path.extname(fullPath).toLowerCase();
       const mimeType = MIME_BY_EXT[ext] || 'application/octet-stream';
       const filename = path.basename(fullPath);
+      const encrypted = await this.isEncryptedOnDisk(fullPath, stats.size);
 
       return {
         fullPath,
         mimeType,
-        sizeBytes: stats.size,
+        sizeBytes: encrypted ? stats.size - ENCRYPTED_FILE_OVERHEAD : stats.size,
         filename,
+        encrypted,
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -431,6 +446,68 @@ export class StorageService {
       }
       throw error;
     }
+  }
+
+  /** Lee la marca del inicio del archivo para saber si está cifrado. */
+  private async isEncryptedOnDisk(fullPath: string, size: number): Promise<boolean> {
+    if (size < ENCRYPTED_FILE_OVERHEAD) return false;
+    const handle = await fs.promises.open(fullPath, 'r');
+    try {
+      const head = Buffer.alloc(ENCRYPTED_FILE_OVERHEAD);
+      await handle.read(head, 0, head.length, 0);
+      return isEncryptedFile(head);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /** El contenido original de un archivo, descifrado si está cifrado. */
+  public async readFileContent(fileKey: string): Promise<Buffer> {
+    const content = await fs.promises.readFile(this.resolveSafePath(fileKey));
+    return isEncryptedFile(content) ? fileCipher().decrypt(content) : content;
+  }
+
+  /**
+   * API-58: cifra en su lugar un documento que quedó sin cifrar de antes. Escribe a un archivo
+   * temporal, comprueba que se descifre igual al original y hasta entonces reemplaza al original,
+   * así que si algo falla el original queda intacto. Regresa false si ya estaba cifrado.
+   */
+  public async encryptExistingFile(fileKey: string): Promise<boolean> {
+    const fullPath = this.resolveSafePath(fileKey);
+    const original = await fs.promises.readFile(fullPath);
+    if (isEncryptedFile(original)) return false;
+
+    const encrypted = fileCipher().encrypt(original);
+    if (!fileCipher().decrypt(encrypted).equals(original)) {
+      throw new Error(`El archivo cifrado no coincide con el original: ${fileKey}`);
+    }
+
+    const tempPath = `${fullPath}.cifrando`;
+    const handle = await fs.promises.open(tempPath, 'w');
+    try {
+      await handle.writeFile(encrypted);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fs.promises.rename(tempPath, fullPath);
+    return true;
+  }
+
+  /** Las llaves de todos los documentos guardados (para cifrar los que quedaron de antes). */
+  public async listDocumentKeys(): Promise<string[]> {
+    const root = path.join(this.storageRoot, 'documents');
+    if (!fs.existsSync(root)) return [];
+    const entries = await fs.promises.readdir(root, { recursive: true, withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && !entry.name.endsWith('.cifrando'))
+      .map((entry) =>
+        path
+          .relative(this.storageRoot, path.join(entry.parentPath, entry.name))
+          .split(path.sep)
+          .join('/'),
+      )
+      .filter((key) => !key.endsWith('.gitkeep'));
   }
 
   /**

@@ -1449,7 +1449,11 @@ paths:
       tags:
         - Archivos
       summary: Descargar un archivo con su enlace firmado
-      description: No pide token; la firma del enlace es la que da acceso mientras esté vigente.
+      description: |
+        No pide token; la firma del enlace es la que da acceso mientras esté vigente.
+
+        [API-58] Los documentos (categoría `documents`) se guardan cifrados en el servidor y aquí
+        se entregan ya descifrados, con el mismo contenido y el mismo `file_hash` que al subirlos.
       security: []
       parameters:
         - $ref: '#/components/parameters/FileKeyQuery'

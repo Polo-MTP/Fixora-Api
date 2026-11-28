@@ -17,6 +17,7 @@
     "db:seed": "tsx src/database/seed.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "storage:encrypt": "tsx src/scripts/encrypt-documents.ts",
     "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "keywords": [],
